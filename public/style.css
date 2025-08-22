@@ -373,5 +373,28 @@ body {
 @media (max-width: 600px) {
     body { padding: 5px; }
     #setup-screen, #waiting-screen { padding: 1.5rem 1rem; }
-    .card { width: 50px; height: 70px; font-size: 1.2rem; }
+    .card {
+        width: 45px; /* Ulteriore riduzione per schermi piccoli */
+        height: 65px;
+        font-size: 1rem;
+    }
+    .hand-title {
+        font-size: 1em;
+    }
+    .btn {
+        font-size: 0.9rem;
+        padding: 0.6rem 1rem;
+    }
+    .combination-cards .card {
+        width: 35px;
+        height: 50px;
+        font-size: 0.8rem;
+    }
+}
+
+@media (max-width: 400px) {
+    .card {
+        width: 40px; /* Riduzione finale per schermi molto piccoli */
+        height: 55px;
+    }
 }
