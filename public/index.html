@@ -40,14 +40,17 @@
             </div>
         </div>
 
-        <!-- Waiting Screen -->
+        <div class="players" id="players-container">
+            </div>
+
         <div id="waiting-screen" style="display: none;">
             <div class="setup-form">
                 <h2>Stanza Creata!</h2>
-                <p>Condividi questo codice con la tua ragazza:</p>
+                <p>Condividi questo codice con i tuoi amici:</p>
                 <div id="room-code-display" class="room-code"></div>
-                <p style="margin: 20px 0;">In attesa del secondo giocatore...</p>
                 <div id="waiting-players"></div>
+                <p style="margin: 20px 0;">In attesa di altri giocatori (min 2, max 4)...</p>
+                <button id="start-game-btn" class="btn primary" style="display: none;" onclick="requestStartGame()">Avvia Partita</button>
             </div>
         </div>
 

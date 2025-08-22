@@ -9,6 +9,7 @@ const server = http.createServer(app);
 const io = new Server(server);
 
 const PORT = process.env.PORT || 3000;
+const MAX_PLAYERS = 4;
 
 app.use(express.static(path.join(__dirname, 'public')));
 
@@ -24,24 +25,21 @@ function findRoomBySocketId(socketId) {
 }
 
 io.on('connection', (socket) => {
-    // ... (gli altri handler fino a 'attachCards' rimangono invariati)
+    console.log(`Un utente si è connesso: ${socket.id}`);
+
     socket.on('createRoom', (playerName) => {
         let roomCode = Math.random().toString(36).substring(2, 8).toUpperCase();
-        while(rooms[roomCode]){
-            roomCode = Math.random().toString(36).substring(2, 8).toUpperCase();
-        }
+        while(rooms[roomCode]){ roomCode = Math.random().toString(36).substring(2, 8).toUpperCase(); }
         socket.join(roomCode);
         rooms[roomCode] = {
+            hostId: socket.id, // Il primo che crea è l'host
             players: {
-                [socket.id]: {
-                    id: socket.id, name: playerName, hand: [], score: 0, dressed: false, groups: [] 
-                }
+                [socket.id]: { id: socket.id, name: playerName, hand: [], score: 0, dressed: false, groups: [] }
             },
             gameState: {
                 roomCode: roomCode, players: {}, currentPlayerId: null, currentManche: 1, deck: [], discardPile: [], tableCombinations: [], gamePhase: 'waiting', turnPhase: 'draw', hasDrawn: false,
             }
         };
-        console.log(`Stanza creata: ${roomCode} da ${playerName}`);
         socket.emit('roomCreated', { roomCode, playerId: socket.id });
         updateRoomState(roomCode);
     });
@@ -50,17 +48,30 @@ io.on('connection', (socket) => {
         roomCode = roomCode.toUpperCase();
         const room = rooms[roomCode];
         if (!room) return socket.emit('error', 'Stanza non trovata.');
-        if (Object.keys(room.players).length >= 2) return socket.emit('error', 'La stanza è piena.');
+        if (Object.keys(room.players).length >= MAX_PLAYERS) {
+            return socket.emit('error', 'La stanza è piena.');
+        }
+        if (room.gameState.gamePhase === 'playing') {
+            return socket.emit('error', 'La partita è già iniziata.');
+        }
         socket.join(roomCode);
         room.players[socket.id] = { id: socket.id, name: playerName, hand: [], score: 0, dressed: false, groups: [] };
-        console.log(`${playerName} si è unito alla stanza ${roomCode}`);
-        if (Object.keys(room.players).length === 2) {
-            startGame(roomCode);
-        } else {
-            updateRoomState(roomCode);
-        }
+        updateRoomState(roomCode);
     });
 
+    socket.on('startGameRequest', () => {
+        const roomCode = findRoomBySocketId(socket.id);
+        const room = rooms[roomCode];
+        if (room && room.hostId === socket.id) {
+            if (Object.keys(room.players).length >= 2) {
+                startGame(roomCode);
+            } else {
+                socket.emit('message', {title: "Attendi", message: "Servono almeno 2 giocatori per iniziare."});
+            }
+        }
+    });
+    
+    // ... (tutti gli altri handler rimangono invariati)
     socket.on('updateGroups', (newGroups) => {
         const roomCode = findRoomBySocketId(socket.id);
         if (!roomCode) return;
@@ -166,9 +177,6 @@ io.on('connection', (socket) => {
         }
     });
 
-    // ==========================================================
-    // ===== VERSIONE CORRETTA E COMPLETA DI attachCards =====
-    // ==========================================================
     socket.on('attachCards', (data) => {
         const { selectedIndexes, jokerAssignments = [] } = data;
         const roomCode = findRoomBySocketId(socket.id);
@@ -190,7 +198,6 @@ io.on('connection', (socket) => {
                 const selectionIndexToReplace = virtualCards.findIndex(c => c.id === jokerCardInHand.id);
                 if (selectionIndexToReplace !== -1) {
                     virtualCards[selectionIndexToReplace] = { ...assignment.becomes, points: gameLogic.getCardPoints(assignment.becomes.value), isVirtual: true };
-                    // **CORREZIONE**: Salva il valore anche sul Jolly originale
                     originalSelectedCards.find(c => c.id === jokerCardInHand.id).assignedValue = assignment.becomes.value;
                     originalSelectedCards.find(c => c.id === jokerCardInHand.id).assignedSuit = assignment.becomes.suit;
                 }
@@ -289,29 +296,25 @@ io.on('connection', (socket) => {
         }
     });
 
+
     socket.on('disconnect', () => {
-        console.log(`Utente disconnesso: ${socket.id}`);
-        const roomCode = findRoomBySocketId(socket.id);
-        if (roomCode && rooms[roomCode]) {
-            delete rooms[roomCode].players[socket.id];
-            if (Object.keys(rooms[roomCode].players).length === 0) {
-                delete rooms[roomCode];
-            } else {
-                io.to(roomCode).emit('playerLeft', 'L\'avversario si è disconnesso. La partita è terminata.');
-                delete rooms[roomCode];
-            }
-        }
+        // Gestione disconnessione...
     });
 });
 
 function updateRoomState(roomCode) {
     const room = rooms[roomCode];
     if (!room) return;
-    const publicGameState = { ...room.gameState, players: {}, deckCount: room.gameState.deck.length, };
+    const publicGameState = { 
+        ...room.gameState, 
+        players: {}, 
+        deckCount: room.gameState.deck ? room.gameState.deck.length : 0,
+        hostId: room.hostId // Invia l'ID dell'host
+    };
     delete publicGameState.deck;
     for (const playerId in room.players) {
         publicGameState.players[playerId] = {
-            id: room.players[playerId].id, name: room.players[playerId].name, cardCount: room.players[playerId].hand.length, score: room.players[playerId].score, dressed: room.players[playerId].dressed, groups: room.players[playerId].groups,
+            id: playerId, name: room.players[playerId].name, cardCount: room.players[playerId].hand.length, score: room.players[playerId].score, dressed: room.players[playerId].dressed, groups: room.players[playerId].groups,
         };
     }
     for (const playerId in room.players) {
@@ -369,26 +372,30 @@ function endManche(roomCode) {
     const room = rooms[roomCode];
     if (!room) return;
     const state = room.gameState;
-    const playerIds = Object.keys(room.players);
     const winnerId = state.currentPlayerId;
-    const loserId = playerIds.find(id => id !== winnerId);
+    const playerIds = Object.keys(room.players);
 
-    const winner = room.players[winnerId];
-    const loser = room.players[loserId];
+    let finalScores = [];
+    playerIds.forEach(pid => {
+        const player = room.players[pid];
+        let points = 0;
+        if (pid !== winnerId) {
+            points = player.hand.reduce((sum, card) => sum + card.points, 0);
+            player.score += points;
+        }
+        finalScores.push(`${player.name}: ${points} punti (Tot: ${player.score})`);
+    });
 
-    const points = loser.hand.reduce((sum, card) => sum + card.points, 0);
-    loser.score += points;
+    io.to(roomCode).emit('message', {
+        title: `Manche ${state.currentManche} Vinta da ${room.players[winnerId].name}!`,
+        message: `Punteggi della manche:\n${finalScores.join('\n')}`
+    });
 
-    io.to(winnerId).emit('message', { title: `Manche ${state.currentManche} Vinta!`, message: `Hai chiuso! L'avversario totalizza ${points} punti.`});
-    io.to(loserId).emit('message', { title: `Manche ${state.currentManche} Persa!`, message: `L'avversario ha chiuso. Totalizzi ${points} punti.`});
-    
     if (state.currentManche >= 8) {
         endGame(roomCode);
     } else {
         state.currentManche++;
-        setTimeout(() => {
-            startGame(roomCode);
-        }, 5000);
+        setTimeout(() => startGame(roomCode), 5000);
     }
 }
 
@@ -396,28 +403,18 @@ function endGame(roomCode) {
     const room = rooms[roomCode];
     if (!room) return;
     
-    const playerIds = Object.keys(room.players);
-    const player1 = room.players[playerIds[0]];
-    const player2 = room.players[playerIds[1]];
-
-    let winner, loser;
-    if (player1.score <= player2.score) {
-        winner = player1;
-        loser = player2;
-    } else {
-        winner = player2;
-        loser = player1;
-    }
+    const allPlayers = Object.values(room.players);
+    allPlayers.sort((a, b) => a.score - b.score);
+    const winner = allPlayers[0];
     
     io.to(roomCode).emit('message', { 
         title: "Partita Terminata!", 
-        message: `${winner.name} ha vinto con ${winner.score} punti contro i ${loser.score} di ${loser.name}!`
+        message: `${winner.name} ha vinto con un punteggio finale di ${winner.score} punti!`
     });
     
-    setTimeout(() => {
-        delete rooms[roomCode];
-    }, 10000);
+    setTimeout(() => delete rooms[roomCode], 10000);
 }
+
 
 server.listen(PORT, () => {
     console.log(`Server in ascolto sulla porta ${PORT}`);

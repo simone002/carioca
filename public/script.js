@@ -20,18 +20,25 @@ socket.on('gameStateUpdate', (serverState) => {
     gameState = serverState;
     console.log("Nuovo stato ricevuto:", gameState);
     if (gameState.currentPlayerId !== myPlayerId) selectedCardIndexes.clear();
-    if (gameState.gamePhase === 'waiting') updateWaitingRoom();
-    else if (gameState.gamePhase === 'playing') { showGameScreen(); updateUI(); }
+    if (gameState.gamePhase === 'waiting') {
+        showWaitingScreen(gameState.roomCode);
+        updateWaitingRoom();
+    }
+    else if (gameState.gamePhase === 'playing') { 
+        showGameScreen(); 
+        updateUI(); 
+    }
 });
 socket.on('error', (message) => { showMessage('Errore', message); });
 socket.on('playerLeft', (message) => { showMessage('Partita terminata', message); setTimeout(() => location.reload(), 3000); });
-socket.on('message', ({ title, message }) => { showMessage(title, message); });
+socket.on('message', ({ title, message }) => { showMessage(title, message.replace(/\n/g, '<br>')); });
 
 // ==========================================================
-// # GAME ACTIONS (EMITTERS)
+// # GAME ACTIONS
 // ==========================================================
 function createRoom() { const playerName = document.getElementById('player-name').value.trim(); if (!playerName) return showMessage('Errore', 'Inserisci il tuo nome per continuare'); socket.emit('createRoom', playerName); }
 function joinRoom() { const playerName = document.getElementById('player-name').value.trim(); const roomCode = document.getElementById('room-code').value.trim(); if (!playerName || !roomCode) return showMessage('Errore', 'Inserisci nome e codice stanza'); socket.emit('joinRoom', { roomCode, playerName }); }
+function requestStartGame() { socket.emit('startGameRequest'); }
 function drawFromDeck() { socket.emit('drawFromDeck'); }
 function drawFromDiscard() { socket.emit('drawFromDiscard'); }
 function dressHand() { handleActionWithJokers(getSelectedCardIndexes(), 'dressHand'); }
@@ -66,7 +73,7 @@ function promptNextJoker() {
         const numDefined = jokerAssignments.length + 1;
         const totalJokers = jokerAssignments.length + jokersToDefine.length;
         document.getElementById('joker-modal-title').textContent = `Assegna Valore al Jolly (${numDefined}/${totalJokers})`;
-        document.getElementById('joker-modal').style.display = 'block';
+        document.getElementById('joker-modal').style.display = 'flex';
     } else {
         sendActionWithJokerData();
     }
@@ -115,36 +122,32 @@ function selectCard(cardElement) {
 }
 function getSelectedCardIndexes() { return Array.from(selectedCardIndexes); }
 function updateUI() {
-    if (!gameState || !gameState.players || Object.keys(gameState.players).length === 0) return;
+    if (!gameState || !gameState.players) return;
+    const playersContainer = document.getElementById('players-container');
+    playersContainer.innerHTML = ''; 
+    const playerIds = Object.keys(gameState.players);
+    const myIndex = playerIds.indexOf(myPlayerId);
+    if (myIndex > -1) {
+        playerIds.splice(myIndex, 1);
+        playerIds.unshift(myPlayerId);
+    }
+    playerIds.forEach(pid => {
+        const player = gameState.players[pid];
+        const playerEl = document.createElement('div');
+        playerEl.className = 'player';
+        playerEl.classList.toggle('current', player.id === gameState.currentPlayerId);
+        playerEl.classList.toggle('dressed', player.dressed);
+        playerEl.innerHTML = `<div class="player-name">${player.id === myPlayerId ? `${player.name} (Tu)` : player.name}</div><div class="player-score">Punti: ${player.score}</div><div class="player-cards">Carte: ${player.cardCount}</div>`;
+        playersContainer.appendChild(playerEl);
+    });
+
     const manche = manches[gameState.currentManche - 1];
     document.getElementById('manche-title').textContent = `Manche ${gameState.currentManche}: ${manche.name}`;
     document.getElementById('manche-desc').textContent = manche.desc;
     document.getElementById('game-round').textContent = gameState.currentManche;
     const currentPlayer = gameState.players[gameState.currentPlayerId];
     document.getElementById('current-turn').textContent = currentPlayer ? currentPlayer.name : 'In attesa...';
-    const playerIds = Object.keys(gameState.players);
-    const myPlayerInfo = gameState.players[myPlayerId];
-    const opponentId = playerIds.find(id => id !== myPlayerId);
-    const opponentInfo = opponentId ? gameState.players[opponentId] : null;
-    if (myPlayerInfo) {
-        const p1El = document.getElementById('player1');
-        p1El.querySelector('.player-name').textContent = `${myPlayerInfo.name} (Tu)`;
-        p1El.querySelector('.player-score').textContent = `Punti: ${myPlayerInfo.score}`;
-        p1El.querySelector('.player-cards').textContent = `Carte: ${myPlayerInfo.cardCount}`;
-        p1El.classList.toggle('current', myPlayerInfo.id === gameState.currentPlayerId);
-        p1El.classList.toggle('dressed', myPlayerInfo.dressed);
-    }
-    const p2El = document.getElementById('player2');
-    if (opponentInfo) {
-        p2El.style.display = '';
-        p2El.querySelector('.player-name').textContent = opponentInfo.name;
-        p2El.querySelector('.player-score').textContent = `Punti: ${opponentInfo.score}`;
-        p2El.querySelector('.player-cards').textContent = `Carte: ${opponentInfo.cardCount}`;
-        p2El.classList.toggle('current', opponentInfo.id === gameState.currentPlayerId);
-        p2El.classList.toggle('dressed', opponentInfo.dressed);
-    } else {
-        p2El.style.display = 'none';
-    }
+    
     document.getElementById('deck-count').textContent = gameState.deckCount || 0;
     updateDiscardPile();
     updatePlayerHand();
@@ -225,20 +228,25 @@ function updateButtons() {
     document.getElementById('attach-btn').disabled = !(canPlay && hasSelected && myPlayerInfo.dressed);
     document.getElementById('discard-btn').disabled = !canDiscard;
 }
+
+// ===== MODIFICA CHIAVE QUI =====
 function createNewGroup(addToDom = true) {
     const container = document.getElementById('player-hand-container');
     const newGroup = document.createElement('div');
     newGroup.className = 'card-group';
     if (addToDom) container.appendChild(newGroup);
+
     new Sortable(newGroup, {
         group: 'player-hand',
         animation: 150,
+        forceFallback: true, // <-- AGGIUNGI QUESTA OPZIONE
         onEnd: function () {
             setTimeout(sendGroupsToServer, 0);
         }
     });
     return newGroup;
 }
+
 function createCardElement(cardData) {
     const cardEl = document.createElement('div');
     cardEl.className = `card ${cardData.isJoker ? 'joker' : (cardData.isRed ? 'red' : 'black')}`;
@@ -249,14 +257,10 @@ function createCardElement(cardData) {
     if (selectedCardIndexes.has(handIndex)) cardEl.classList.add('selected');
     return cardEl;
 }
-
-// ===== MODIFICA QUI =====
-// Funzione aggiornata con il controllo di sicurezza
 function sendGroupsToServer() {
     const container = document.getElementById('player-hand-container');
     const groups = [];
     let cardCountInDom = 0;
-
     container.querySelectorAll('.card-group').forEach(groupEl => {
         const cardIdsInGroup = [];
         groupEl.querySelectorAll('.card').forEach(cardEl => {
@@ -265,27 +269,50 @@ function sendGroupsToServer() {
         });
         groups.push(cardIdsInGroup);
     });
-
-    // CONTROLLO DI SICUREZZA:
-    // Se il numero di carte visibili non corrisponde a quello che dovremmo avere,
-    // significa che un trascinamento è fallito. Annulliamo l'invio e ridisegniamo.
     if (gameState.playerHand && gameState.playerHand.length !== cardCountInDom) {
         console.error("Discrepanza nel conteggio delle carte! Ridisegno forzato della mano.");
-        updatePlayerHand(); // Forza un ridisegno basato sull'ultimo stato corretto
-        return; // Non inviare i dati sbagliati al server
+        updatePlayerHand();
+        return;
     }
-
     socket.emit('updateGroups', groups);
 }
 
 // ... (tutte le altre funzioni di gestione schermate e modal rimangono invariate)
 function updateConnectionStatus(status) { const statusEl = document.getElementById('connection-status'); statusEl.className = `connection-status ${status}`; statusEl.textContent = status === 'connected' ? 'Online' : 'Connecting...'; }
 function showJoinRoom() { document.getElementById('join-room').style.display = 'block'; }
-function showWaitingScreen(roomCode) { document.getElementById('setup-screen').style.display = 'none'; document.getElementById('waiting-screen').style.display = 'block'; document.getElementById('room-code-display').textContent = roomCode; }
-function updateWaitingRoom() { const playersListEl = document.getElementById('waiting-players'); playersListEl.innerHTML = ''; const playerNames = Object.values(gameState.players).map(p => p.name); playersListEl.innerHTML = `Giocatori: ${playerNames.join(', ')}`; }
-function showGameScreen() { document.getElementById('setup-screen').style.display = 'none'; document.getElementById('waiting-screen').style.display = 'none'; document.getElementById('game-screen').style.display = 'block'; }
-function showMessage(title, message) { document.getElementById('modal-title').textContent = title; document.getElementById('modal-message').textContent = message; document.getElementById('message-modal').style.display = 'block'; }
-function closeModal() { document.getElementById('message-modal').style.display = 'none'; }
+function showWaitingScreen(roomCode) {
+    document.getElementById('setup-screen').style.display = 'none';
+    document.getElementById('waiting-screen').style.display = 'block';
+    document.getElementById('game-screen').style.display = 'none';
+    document.getElementById('room-code-display').textContent = roomCode;
+}
+function updateWaitingRoom() {
+    const playersListEl = document.getElementById('waiting-players');
+    const startGameBtn = document.getElementById('start-game-btn');
+    if (!gameState.players) return;
+    const playerNames = Object.values(gameState.players).map(p => p.name);
+    playersListEl.innerHTML = `Giocatori: ${playerNames.join(', ')}`;
+    if (myPlayerId === gameState.hostId && playerNames.length >= 2) {
+        startGameBtn.style.display = 'block';
+    } else {
+        startGameBtn.style.display = 'none';
+    }
+}
+function showGameScreen() {
+    document.getElementById('setup-screen').style.display = 'none';
+    document.getElementById('waiting-screen').style.display = 'none';
+    document.getElementById('game-screen').style.display = 'block';
+}
+function showMessage(title, message) {
+    document.getElementById('modal-title').textContent = title;
+    document.getElementById('modal-message').innerHTML = message.replace(/\n/g, '<br>');
+    const modal = document.getElementById('message-modal');
+    modal.style.display = 'flex';
+}
+function closeModal() { 
+    document.getElementById('message-modal').style.display = 'none'; 
+    document.getElementById('joker-modal').style.display = 'none';
+}
 
 // Initialize
 populateJokerValues();
