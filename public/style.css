@@ -1,4 +1,4 @@
-/* ===== STILE FINALE CON DESIGN FLUIDO ===== */
+/* ===== STILE FINALE CON DESIGN FLUIDO E LAYOUT DIFFERENZIATO ===== */
 @import url('https://fonts.googleapis.com/css2?family=Roboto:wght@400;700&display=swap');
 
 :root {
@@ -224,12 +224,11 @@ body {
     text-align: center;
     margin-bottom: 1rem;
 }
-/* MODIFICA CHIAVE QUI */
 #player-hand-container {
     display: flex;
-    flex-direction: column; /* Impila i gruppi verticalmente */
     gap: 1rem;
     padding: 0.5rem;
+    overflow-x: auto; /* Scroll orizzontale di default (per PC) */
     min-height: 115px;
 }
 .card-group {
@@ -240,7 +239,6 @@ body {
     border-radius: 8px;
     min-width: fit-content;
     align-content: flex-start;
-    overflow-x: auto; /* Aggiunge lo scroll orizzontale solo se necessario */
 }
 #player-hand-container::-webkit-scrollbar { height: 8px; }
 #player-hand-container::-webkit-scrollbar-track { background: rgba(0,0,0,0.2); border-radius: 4px; }
@@ -330,7 +328,11 @@ body {
 .connection-status.connecting { background: #ffc107; color: #333; }
 .connection-status.disconnected { background: #dc3545; }
 
-/* LAYOUT RESPONSIVE */
+
+/* ========================================================== */
+/* ===== LAYOUT RESPONSIVE OTTIMIZZATO ===== */
+/* ========================================================== */
+
 @media (max-width: 800px) {
     .game-area {
         flex-direction: column;
@@ -344,5 +346,11 @@ body {
     .table-area {
         width: 100%;
         margin-top: 1rem;
+    }
+
+    /* MODIFICA CHIAVE: La mano va a capo su mobile */
+    #player-hand-container {
+        flex-wrap: wrap;
+        overflow-x: hidden;
     }
 }
