@@ -25,13 +25,14 @@ function findRoomBySocketId(socketId) {
 }
 
 io.on('connection', (socket) => {
-    // ... createRoom, joinRoom, updateGroups, draw, discard handlers
+    console.log(`Un utente si è connesso: ${socket.id}`);
+
     socket.on('createRoom', (playerName) => {
         let roomCode = Math.random().toString(36).substring(2, 8).toUpperCase();
         while(rooms[roomCode]){ roomCode = Math.random().toString(36).substring(2, 8).toUpperCase(); }
         socket.join(roomCode);
         rooms[roomCode] = {
-            hostId: socket.id, 
+            hostId: socket.id,
             players: {
                 [socket.id]: { id: socket.id, name: playerName, hand: [], score: 0, dressed: false, groups: [] }
             },
@@ -41,11 +42,6 @@ io.on('connection', (socket) => {
         };
         socket.emit('roomCreated', { roomCode, playerId: socket.id });
         updateRoomState(roomCode);
-    });
-
-
-    socket.on('keep-alive', () => {
-        // Ricevuto il ping, non fa nulla se non mantenere viva la connessione.
     });
 
     socket.on('joinRoom', ({ roomCode, playerName }) => {
@@ -232,7 +228,7 @@ io.on('connection', (socket) => {
             for (const combo of state.tableCombinations) {
                 let comboCardsWithJokerValues = combo.cards.map(c => {
                     if (c.isJoker && c.assignedValue) {
-                        return { value: c.assignedValue, suit: c.assignedSuit, isVirtual: true, points: gameLogic.getCardPoints(c.assignedValue) };
+                        return { ...c, value: c.assignedValue, suit: c.assignedSuit, isVirtual: true, points: gameLogic.getCardPoints(c.assignedValue) };
                     }
                     return c;
                 });
@@ -302,20 +298,35 @@ io.on('connection', (socket) => {
     socket.on('disconnect', () => {
         const roomCode = findRoomBySocketId(socket.id);
         if (roomCode && rooms[roomCode]) {
-            const disconnectedPlayerName = rooms[roomCode].players[socket.id]?.name || 'Un giocatore';
-            delete rooms[roomCode].players[socket.id];
+            const room = rooms[roomCode];
+            const disconnectedPlayerName = room.players[socket.id]?.name || 'Un giocatore';
+            const wasCurrentPlayer = room.gameState.currentPlayerId === socket.id;
+
+            delete room.players[socket.id];
+            console.log(`${disconnectedPlayerName} disconnesso dalla stanza ${roomCode}. Giocatori rimasti: ${Object.keys(room.players).length}`);
             
-            if (Object.keys(rooms[roomCode].players).length < 2 && rooms[roomCode].gameState.gamePhase === 'playing') {
+            const remainingPlayers = Object.keys(room.players);
+
+            if (remainingPlayers.length < 2 && room.gameState.gamePhase === 'playing') {
                 io.to(roomCode).emit('message', { title: "Partita Terminata", message: `${disconnectedPlayerName} si è disconnesso. La partita finisce.`});
                 delete rooms[roomCode];
-            } else if (Object.keys(rooms[roomCode].players).length === 0) {
+            } else if (remainingPlayers.length === 0) {
                  delete rooms[roomCode];
             } else {
-                 io.to(roomCode).emit('message', { title: "Giocatore Disconnesso", message: `${disconnectedPlayerName} ha lasciato la stanza.`});
-                 updateRoomState(roomCode);
+                 if(room.hostId === socket.id){ // Se l'host si disconnette, ne viene eletto uno nuovo
+                     room.hostId = remainingPlayers[0];
+                 }
+                 if(wasCurrentPlayer){ // Se era il turno del giocatore disconnesso, passa al prossimo
+                    endTurn(roomCode, true); // Passa il turno senza aspettare lo scarto
+                 } else {
+                    io.to(roomCode).emit('message', { title: "Giocatore Disconnesso", message: `${disconnectedPlayerName} ha lasciato la stanza.`});
+                    updateRoomState(roomCode);
+                 }
             }
         }
     });
+
+    socket.on('keep-alive', () => { /* Gestisce il ping per tenere attivo il server */ });
 });
 
 function updateRoomState(roomCode) {
@@ -348,7 +359,8 @@ function startGame(roomCode) {
         room.players[pid].dressed = false;
         room.players[pid].groups = [];
     });
-    for(let i = 0; i < 13; i++) {
+    const cardsToDeal = playerIds.length > 2 ? 11 : 13; // 11 carte se si gioca in 3 o 4
+    for(let i = 0; i < cardsToDeal; i++) {
         playerIds.forEach(pid => {
             if (state.deck.length > 0) {
                 room.players[pid].hand.push(state.deck.pop());
@@ -367,19 +379,30 @@ function startGame(roomCode) {
     updateRoomState(roomCode);
 }
 
-function endTurn(roomCode) {
+function endTurn(roomCode, forceImmediateUpdate = false) {
     const room = rooms[roomCode];
-    if (!room) return;
+    if (!room || !room.gameState.currentPlayerId) return;
     const state = room.gameState;
     const playerIds = Object.keys(room.players);
     if(playerIds.length === 0) return;
+
     const currentPlayerIndex = playerIds.indexOf(state.currentPlayerId);
-    const nextPlayerIndex = (currentPlayerIndex + 1) % playerIds.length;
-    state.currentPlayerId = playerIds[nextPlayerIndex];
+    if(currentPlayerIndex === -1) { // Il giocatore di turno non esiste più
+        state.currentPlayerId = playerIds[0]; // Imposta il primo della lista come nuovo giocatore di turno
+    } else {
+        const nextPlayerIndex = (currentPlayerIndex + 1) % playerIds.length;
+        state.currentPlayerId = playerIds[nextPlayerIndex];
+    }
+    
     state.hasDrawn = false;
     state.turnPhase = 'draw';
-    console.log(`Turno terminato. Ora è il turno di ${room.players[state.currentPlayerId].name}`);
-    updateRoomState(roomCode);
+
+    if (forceImmediateUpdate) {
+        updateRoomState(roomCode);
+    } else {
+        console.log(`Turno terminato. Ora è il turno di ${room.players[state.currentPlayerId].name}`);
+        updateRoomState(roomCode);
+    }
 }
 
 function endManche(roomCode) {
@@ -409,7 +432,9 @@ function endManche(roomCode) {
         endGame(roomCode);
     } else {
         state.currentManche++;
-        setTimeout(() => startGame(roomCode), 5000);
+        setTimeout(() => {
+            if(rooms[roomCode]) startGame(roomCode);
+        }, 5000);
     }
 }
 
@@ -426,7 +451,9 @@ function endGame(roomCode) {
         message: `${winner.name} ha vinto con un punteggio finale di ${winner.score} punti!`
     });
     
-    setTimeout(() => delete rooms[roomCode], 10000);
+    setTimeout(() => {
+        delete rooms[roomCode];
+    }, 10000);
 }
 
 

@@ -4,7 +4,7 @@ let originalAction = null;
 let originalSelection = [];
 let jokerAssignments = [];
 let isSwappingJoker = false;
-let previousPlayerId = null; // NUOVA VARIABILE: per tracciare il turno precedente
+let previousPlayerId = null;
 
 const socket = io();
 let gameState = {};
@@ -19,12 +19,10 @@ socket.on('disconnect', () => { updateConnectionStatus('disconnected'); });
 socket.on('roomCreated', ({ roomCode, playerId }) => { myPlayerId = playerId; showWaitingScreen(roomCode); });
 
 socket.on('gameStateUpdate', (serverState) => {
-    // ===== MODIFICA CHIAVE QUI =====
-    // Controlla se il turno è appena passato a questo giocatore
     if (previousPlayerId !== myPlayerId && serverState.currentPlayerId === myPlayerId && serverState.gamePhase === 'playing') {
         showMessage("È il tuo turno!", "Tocca a te giocare.");
     }
-    previousPlayerId = serverState.currentPlayerId; // Aggiorna il tracker del turno
+    previousPlayerId = serverState.currentPlayerId; 
 
     gameState = serverState;
     console.log("Nuovo stato ricevuto:", gameState);
@@ -42,6 +40,17 @@ socket.on('gameStateUpdate', (serverState) => {
 socket.on('error', (message) => { showMessage('Errore', message); });
 socket.on('playerLeft', (message) => { showMessage('Partita terminata', message); setTimeout(() => location.reload(), 3000); });
 socket.on('message', ({ title, message }) => { showMessage(title, message.replace(/\n/g, '<br>')); });
+
+// ==========================================================
+// # KEEP-ALIVE
+// ==========================================================
+setInterval(() => {
+    if (socket.connected) {
+        socket.emit('keep-alive');
+        console.log("Ping inviato per mantenere il server attivo.");
+    }
+}, 300000); // 5 minuti
+
 
 // ==========================================================
 // # GAME ACTIONS
@@ -147,7 +156,7 @@ function updateUI() {
         playerEl.className = 'player';
         playerEl.classList.toggle('current', player.id === gameState.currentPlayerId);
         playerEl.classList.toggle('dressed', player.dressed);
-        playerEl.innerHTML = `<div class="player-name">${player.id === myPlayerId ? `${player.name} (Tu)` : player.name}</div><div class="player-score">Punti: ${player.score}</div><div class="player-cards">Carte: ${player.cardCount}</div>`;
+        playerEl.innerHTML = `<div class="player-name">${player.id === myPlayerId ? `${player.name} (Tu)` : player.name}</div><div class="player-score">Punti: ${player.score}</div><div class.player-cards">Carte: ${player.cardCount}</div>`;
         playersContainer.appendChild(playerEl);
     });
 
@@ -305,6 +314,7 @@ function updateWaitingRoom() {
     if (!gameState.players) return;
     const playerNames = Object.values(gameState.players).map(p => p.name);
     playersListEl.innerHTML = `Giocatori: ${playerNames.join(', ')}`;
+    console.log(`Sono l'host? Confronto: myPlayerId (${myPlayerId}) === gameState.hostId (${gameState.hostId})`);
     if (myPlayerId === gameState.hostId && playerNames.length >= 2) {
         startGameBtn.style.display = 'block';
     } else {
