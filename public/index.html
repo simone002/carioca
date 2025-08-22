@@ -133,6 +133,30 @@
         </div>
     </div>
 
+    <div id="joker-modal" class="modal">
+        <div class="modal-content">
+            <h3 id="joker-modal-title">Assegna un Valore al Jolly</h3>
+            <p>Che carta deve rappresentare questo Jolly?</p>
+            <div class="joker-controls">
+                <div class="form-group">
+                    <label for="joker-value-select">Valore:</label>
+                    <select id="joker-value-select">
+                        </select>
+                </div>
+                <div class="form-group">
+                    <label for="joker-suit-select">Seme:</label>
+                    <select id="joker-suit-select">
+                        <option value="♠">Picche ♠</option>
+                        <option value="♥">Cuori ♥</option>
+                        <option value="♦">Quadri ♦</option>
+                        <option value="♣">Fiori ♣</option>
+                    </select>
+                </div>
+            </div>
+            <button id="confirm-joker-btn" class="btn primary">Conferma</button>
+        </div>
+    </div>
+
     <script src="https://cdn.jsdelivr.net/npm/sortablejs@latest/Sortable.min.js"></script>
     <script src="/socket.io/socket.io.js"></script>
     <script src="logic.js"></script> 

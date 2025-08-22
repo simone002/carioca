@@ -117,7 +117,10 @@ body {
     margin: 1px;
     border: 1px solid #333;
     position: relative;
+    transform: translateZ(0); /* <-- AGGIUNGI QUESTA RIGA */
+
 }
+
 
 .card:hover {
     transform: scale(1.1);
@@ -151,21 +154,13 @@ body {
 
 .hand {
     margin-bottom: 15px;
+    overflow: visible; /* <-- CORREZIONE APPLICATA */
 }
 
 .hand-title {
     font-size: 14px;
     margin-bottom: 8px;
     text-align: center;
-}
-
-.cards {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 2px;
-    justify-content: center;
-    max-height: 120px;
-    overflow-y: auto;
 }
 
 .table-area {
@@ -350,6 +345,7 @@ body {
     background: rgba(0,0,0,0.1);
     border-radius: 10px;
     min-height: 85px;
+    overflow: visible; /* <-- CORREZIONE APPLICATA */
 }
 
 .card-group {
@@ -366,6 +362,38 @@ body {
 
 .card-group .card:hover {
     transform: scale(1.05);
+}
+
+/* Aggiungi questo alla fine di style.css */
+.joker-controls {
+    display: flex;
+    gap: 15px;
+    margin: 20px 0;
+    justify-content: center;
+}
+
+.joker-controls .form-group {
+    text-align: center;
+}
+
+.joker-controls select {
+    padding: 8px;
+    border-radius: 5px;
+    border: none;
+    font-size: 16px;
+}
+
+/* Aggiungi questo alla fine di style.css */
+.card .joker-value {
+    position: absolute;
+    bottom: 2px;
+    right: 4px;
+    font-size: 10px;
+    font-weight: bold;
+    color: #333;
+    background: rgba(255, 255, 255, 0.7);
+    padding: 1px 3px;
+    border-radius: 3px;
 }
 
 /* REGOLE CHE SI ATTIVANO SOLO SU SCHERMI PICCOLI */
