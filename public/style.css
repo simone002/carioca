@@ -262,18 +262,14 @@ body {
 }
 .card-group {
     display: flex;
+    gap: 5px; /* MODIFICA: Usa 'gap' per spaziare le carte */
     border: 2px dashed rgba(255,255,255,0.2);
     padding: 0.5rem;
     border-radius: 8px;
     min-width: 75px;
     align-content: flex-start;
 }
-.card-group .card {
-    margin-right: -25px; 
-}
-.card-group .card:last-child {
-    margin-right: 0;
-}
+/* RIMOSSA la regola del margine negativo */
 
 
 #player-hand-container::-webkit-scrollbar { height: 8px; }
@@ -368,7 +364,6 @@ body {
 /* ===== NUOVO LAYOUT RESPONSIVE MIGLIORATO ===== */
 /* ========================================================== */
 
-/* Per schermi medi e piccoli (tablet e telefoni in orizzontale) */
 @media (max-width: 900px) {
     body {
         padding: 5px;
@@ -390,28 +385,30 @@ body {
     .players {
         grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
     }
+
+    #player-hand-container {
+        flex-wrap: wrap;
+        overflow-x: hidden;
+        min-height: auto;
+    }
 }
 
-/* Per schermi piccoli (telefoni) */
 @media (max-width: 600px) {
     #setup-screen, #waiting-screen { padding: 1.5rem 1rem; }
     .card {
-        width: 45px;
-        height: 65px;
-        font-size: 1rem;
-    }
-    .card-group .card {
-        margin-right: -20px;
+        width: 50px;
+        height: 70px;
+        font-size: 1.1rem;
     }
     
     .combination-cards .card {
-        width: 35px;
-        height: 50px;
-        font-size: 0.8rem;
+        width: 40px;
+        height: 56px;
+        font-size: 0.9rem;
     }
     .btn {
         font-size: 0.9rem;
-        padding: 0.6rem 1rem;
+        padding: 0.7rem 1.2rem;
     }
     .players {
         display: grid;
@@ -422,15 +419,12 @@ body {
     }
 }
 
-/* Per schermi molto piccoli */
 @media (max-width: 420px) {
     .card {
-        width: 40px;
-        height: 58px;
+        width: 45px;
+        height: 63px;
     }
-    .card-group .card {
-        margin-right: 5px; /* Sovrascrive il margine negativo e distanzia le carte */
-    }
+
     .combination-cards .card {
         width: 38px;
         height: 54px;
