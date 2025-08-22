@@ -1,5 +1,10 @@
-/* ===== STILE ORIGINALE MIGLIORATO ===== */
+/* ===== STILE FINALE CON DESIGN FLUIDO ===== */
 @import url('https://fonts.googleapis.com/css2?family=Roboto:wght@400;700&display=swap');
+
+:root {
+    /* Definiamo la dimensione del font principale in modo fluido */
+    font-size: clamp(14px, 1.5vw, 16px);
+}
 
 * {
     margin: 0;
@@ -12,102 +17,72 @@ body {
     background: linear-gradient(135deg, #0f4c3a, #2d8f47);
     color: white;
     min-height: 100vh;
-    padding: 10px;
+    padding: 1rem;
+    display: flex;
+    justify-content: center;
+    align-items: center;
 }
 
 .container {
     width: 100%;
-    max-width: 1200px;
+    max-width: 1400px; /* Aumentato per schermi più grandi */
     margin: 0 auto;
 }
 
 .header {
     text-align: center;
-    margin-bottom: 15px;
+    margin-bottom: 1rem;
+    font-size: clamp(1.5rem, 3vw, 2rem);
 }
 
 /* ===== SETUP & WAITING SCREEN ===== */
 #setup-screen, #waiting-screen {
     background: rgba(0,0,0,0.2);
-    padding: 2rem;
-    border-radius: 8px;
+    padding: clamp(1.5rem, 5vw, 2.5rem);
+    border-radius: 12px;
     max-width: 500px;
     margin: 2rem auto;
     text-align: center;
-}
-#setup-screen h2, #waiting-screen h2 {
-    margin-bottom: 1rem;
-}
-.form-group {
-    margin-bottom: 1rem;
-    text-align: left;
-}
-.form-group label {
-    display: block;
-    margin-bottom: 0.5rem;
 }
 .form-group input {
     width: 100%;
     padding: 0.8rem;
     border: none;
-    border-radius: 5px;
+    border-radius: 8px;
     font-size: 1rem;
     color: #333;
 }
-.controls {
-    display: flex;
-    gap: 1rem;
-    justify-content: center;
-}
 .room-code {
-    font-family: monospace;
-    font-size: 2rem;
+    font-size: clamp(1.5rem, 5vw, 2.2rem);
     background: rgba(255,255,255,0.1);
     padding: 1rem;
     border-radius: 8px;
-    margin: 1rem 0;
-    letter-spacing: 2px;
 }
 
 /* ===== GAME SCREEN ===== */
-.game-info {
-    display: flex;
-    gap: 10px;
-    margin-bottom: 15px;
-}
-.info-card {
-    background: rgba(255,255,255,0.1);
-    padding: 0.5rem 1rem;
-    border-radius: 8px;
-    text-align: center;
-    flex-grow: 1;
-}
-.manche-info {
+.info-card, .manche-info {
     background: rgba(0,0,0,0.2);
-    padding: 1rem;
+    padding: clamp(0.5rem, 2vw, 1rem);
     border-radius: 8px;
-    margin-bottom: 15px;
+    margin-bottom: 1rem;
     text-align: center;
 }
-.manche-title { font-size: 1.2em; font-weight: bold; }
+.manche-title { font-size: 1.1em; font-weight: bold; }
 .manche-desc { font-size: 0.9em; opacity: 0.8; }
 
 /* LAYOUT FLESSIBILE PER I GIOCATORI */
 .players {
-    display: flex;
-    flex-wrap: wrap;
-    justify-content: center;
-    gap: 10px;
-    margin-bottom: 15px;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 1rem;
+    margin-bottom: 1rem;
 }
 .player {
-    background: rgba(255,255,255,0.05);
+    background: rgba(0,0,0,0.1);
     border: 2px solid rgba(255,255,255,0.1);
     padding: 0.8rem;
     border-radius: 8px;
     text-align: center;
-    flex-basis: 150px;
-    flex-grow: 1;
     transition: all 0.3s ease;
 }
 .player.current {
@@ -122,12 +97,12 @@ body {
 .player-score, .player-cards { font-size: 0.9em; opacity: 0.8; }
 
 .game-area {
-    background: rgba(0,0,0,0.2);
-    border-radius: 8px;
+    background: rgba(0,0,0,0.3);
+    border-radius: 12px;
     padding: 1rem;
-    margin-bottom: 15px;
+    margin-bottom: 1rem;
     display: flex;
-    gap: 1.5rem;
+    gap: 1rem;
 }
 .center-area {
     display: flex;
@@ -139,6 +114,7 @@ body {
     font-weight: bold;
     text-align: center;
     margin-bottom: 0.5rem;
+    font-size: 0.9rem;
 }
 .table-area {
     flex-grow: 1;
@@ -146,10 +122,10 @@ body {
 #table-combinations {
     display: flex;
     flex-direction: column;
-    gap: 0.8rem;
+    gap: 0.5rem;
 }
 .combination {
-    background: rgba(255,255,255,0.05);
+    background: rgba(0,0,0,0.2);
     padding: 0.5rem;
     border-radius: 5px;
 }
@@ -164,15 +140,15 @@ body {
     gap: 5px;
 }
 
-/* CARD STYLES */
+/* CARD STYLES FLUIDI */
 .card {
-    width: 60px;
-    height: 85px;
-    border-radius: 6px;
+    width: clamp(45px, 5.5vw, 65px);
+    height: clamp(63px, 7.7vw, 91px);
+    font-size: clamp(1.2rem, 2.5vw, 1.6rem);
+    border-radius: 5px;
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 1.5rem;
     font-weight: bold;
     cursor: pointer;
     transition: all 0.2s ease;
@@ -208,35 +184,31 @@ body {
     opacity: 0 !important;
 }
 
-
 .card.red { color: #c0392b; }
 .card.black { color: #333; }
+.card.back, .card.joker {
+    font-size: clamp(2rem, 4vw, 2.8rem);
+}
 .card.back {
     background: linear-gradient(135deg, #2980b9, #1f608a);
     color: white;
-    font-size: 2.5rem;
 }
 .card.joker {
     background: linear-gradient(135deg, #f1c40f, #f39c12);
     color: white;
-    font-size: 2.5rem;
 }
 .card .joker-value {
+    font-size: clamp(0.8rem, 1.8vw, 1.1rem);
     position: absolute;
-    bottom: 3px;
-    right: 5px;
-    font-size: 1rem;
-    font-weight: 700;
-    color: #333;
+    bottom: 3px; right: 5px;
+    font-weight: 700; color: #333;
     background: rgba(255,255,255,0.7);
-    padding: 1px 4px;
-    border-radius: 3px;
+    padding: 1px 4px; border-radius: 3px;
 }
 .card .joker-suit {
+    font-size: clamp(0.8rem, 1.8vw, 1.1rem);
     position: absolute;
-    top: 3px;
-    left: 5px;
-    font-size: 1rem;
+    top: 3px; left: 5px;
     font-weight: 700;
 }
 
@@ -245,7 +217,7 @@ body {
     background: rgba(0,0,0,0.2);
     border-radius: 8px;
     padding: 1rem;
-    margin-top: 15px;
+    margin-top: 1rem;
     overflow: visible;
 }
 .hand-title {
@@ -255,10 +227,10 @@ body {
 }
 #player-hand-container {
     display: flex;
-    gap: 1.5rem;
+    gap: 1rem;
     padding: 0.5rem;
     overflow-x: auto;
-    min-height: 110px;
+    min-height: 115px; /* Altezza minima per contenere le carte scalate */
 }
 .card-group {
     display: flex;
@@ -266,10 +238,9 @@ body {
     border: 2px dashed rgba(255,255,255,0.2);
     padding: 0.5rem;
     border-radius: 8px;
-    min-width: fit-content; /* Si adatta al contenuto */
+    min-width: fit-content;
     align-content: flex-start;
 }
-
 #player-hand-container::-webkit-scrollbar { height: 8px; }
 #player-hand-container::-webkit-scrollbar-track { background: rgba(0,0,0,0.2); border-radius: 4px; }
 #player-hand-container::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.3); border-radius: 4px; }
@@ -283,7 +254,7 @@ body {
 }
 .btn {
     padding: 0.8rem 1.5rem;
-    font-size: 1rem;
+    font-size: clamp(0.8rem, 2vw, 1rem);
     font-weight: 600;
     border-radius: 8px;
     border: none;
@@ -358,15 +329,8 @@ body {
 .connection-status.connecting { background: #ffc107; color: #333; }
 .connection-status.disconnected { background: #dc3545; }
 
-
-/* ========================================================== */
-/* ===== LAYOUT RESPONSIVE OTTIMIZZATO ===== */
-/* ========================================================== */
-
+/* LAYOUT RESPONSIVE CON MANTENIMENTO DELLA STRUTTURA */
 @media (max-width: 800px) {
-    body {
-        padding: 5px;
-    }
     .game-area {
         flex-direction: column;
         align-items: stretch;
@@ -379,51 +343,5 @@ body {
     .table-area {
         width: 100%;
         margin-top: 1rem;
-    }
-
-    /* MODIFICA CHIAVE: La mano va a capo su mobile */
-    #player-hand-container {
-        flex-wrap: wrap;
-        overflow-x: hidden;
-        min-height: auto;
-    }
-}
-
-@media (max-width: 600px) {
-    .players {
-        grid-template-columns: 1fr 1fr;
-    }
-    
-    /* Ridimensionamento generale per telefoni */
-    .card {
-        width: 50px;
-        height: 70px;
-        font-size: 1.2rem;
-    }
-    .combination-cards .card {
-        width: 40px;
-        height: 56px;
-        font-size: 0.9rem;
-    }
-    .btn {
-        font-size: 0.9em;
-        padding: 0.7rem 1rem;
-    }
-    .info-card, .manche-info {
-        padding: 0.5rem;
-    }
-    .manche-title { font-size: 1.1em; }
-}
-
-@media (max-width: 420px) {
-    .card {
-        width: 42px;
-        height: 60px;
-        font-size: 1.1rem;
-    }
-    .combination-cards .card {
-        width: 35px;
-        height: 50px;
-        font-size: 0.8rem;
     }
 }
