@@ -13,12 +13,17 @@ body {
     color: white;
     min-height: 100vh;
     padding: 10px;
+    /* Modifica per centrare il container scalato */
+    display: flex;
+    align-items: center;
+    justify-content: center;
 }
 
 .container {
     width: 100%;
     max-width: 1200px;
     margin: 0 auto;
+    transition: transform 0.3s ease; /* Aggiunge una transizione fluida allo scaling */
 }
 
 .header {
@@ -262,15 +267,13 @@ body {
 }
 .card-group {
     display: flex;
-    gap: 5px; /* MODIFICA: Usa 'gap' per spaziare le carte */
+    gap: 5px;
     border: 2px dashed rgba(255,255,255,0.2);
     padding: 0.5rem;
     border-radius: 8px;
     min-width: 75px;
     align-content: flex-start;
 }
-/* RIMOSSA la regola del margine negativo */
-
 
 #player-hand-container::-webkit-scrollbar { height: 8px; }
 #player-hand-container::-webkit-scrollbar-track { background: rgba(0,0,0,0.2); border-radius: 4px; }
@@ -360,77 +363,35 @@ body {
 .connection-status.connecting { background: #ffc107; color: #333; }
 .connection-status.disconnected { background: #dc3545; }
 
+
 /* ========================================================== */
-/* ===== NUOVO LAYOUT RESPONSIVE MIGLIORATO ===== */
+/* ===== SCALING GLOBALE PER MOBILE ===== */
 /* ========================================================== */
 
 @media (max-width: 900px) {
-    body {
-        padding: 5px;
-    }
-    
-    .game-area {
-        flex-direction: column;
-        align-items: center;
-    }
-    .center-area {
-        flex-direction: row;
-        width: 100%;
-        justify-content: space-around;
-    }
-    .table-area {
-        width: 100%;
-        margin-top: 1rem;
-    }
-    .players {
-        grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    /* Calcoliamo il fattore di scala in base alla larghezza dello schermo */
+    .container {
+        transform: scale(calc(100vw / 950));
+        transform-origin: top left;
+        /* Potrebbe essere necessario regolare la larghezza del body per evitare barre di scorrimento */
+        width: 950px; 
     }
 
-    #player-hand-container {
-        flex-wrap: wrap;
-        overflow-x: hidden;
-        min-height: auto;
+    body {
+        /* Assicura che ci sia spazio per il container scalato */
+        height: calc(100vh * (950 / 100vw));
+        width: 100%;
+        overflow: hidden;
     }
 }
 
 @media (max-width: 600px) {
-    #setup-screen, #waiting-screen { padding: 1.5rem 1rem; }
-    .card {
-        width: 50px;
-        height: 70px;
-        font-size: 1.1rem;
+    .container {
+        /* Aumenta leggermente lo scaling per una migliore leggibilità su schermi molto piccoli */
+        transform: scale(calc(100vw / 800));
+        width: 800px;
     }
-    
-    .combination-cards .card {
-        width: 40px;
-        height: 56px;
-        font-size: 0.9rem;
-    }
-    .btn {
-        font-size: 0.9rem;
-        padding: 0.7rem 1.2rem;
-    }
-    .players {
-        display: grid;
-        grid-template-columns: 1fr 1fr;
-    }
-    .hand-title {
-        font-size: 1em;
-    }
-}
-
-@media (max-width: 420px) {
-    .card {
-        width: 45px;
-        height: 63px;
-    }
-
-    .combination-cards .card {
-        width: 38px;
-        height: 54px;
-        font-size: 0.9rem;
-    }
-    .hand-title, .btn, .manche-title, .manche-desc, .info-card {
-        font-size: 0.85em;
+     body {
+        height: calc(100vh * (800 / 100vw));
     }
 }
