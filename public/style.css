@@ -221,8 +221,6 @@ body {
     color: white;
     font-size: 2.5rem;
 }
-
-/* Stili per valore e seme del Jolly */
 .card .joker-value {
     position: absolute;
     bottom: 3px;
@@ -271,7 +269,7 @@ body {
     align-content: flex-start;
 }
 .card-group .card {
-    margin-right: -25px; /* Sovrappone le carte per un look più compatto */
+    margin-right: -25px; 
 }
 .card-group .card:last-child {
     margin-right: 0;
@@ -377,11 +375,11 @@ body {
     }
     
     .game-area {
-        flex-direction: column; 
+        flex-direction: column;
         align-items: center;
     }
     .center-area {
-        flex-direction: row; 
+        flex-direction: row;
         width: 100%;
         justify-content: space-around;
     }
@@ -398,7 +396,7 @@ body {
 @media (max-width: 600px) {
     #setup-screen, #waiting-screen { padding: 1.5rem 1rem; }
     .card {
-        width: 45px; 
+        width: 45px;
         height: 65px;
         font-size: 1rem;
     }
@@ -431,7 +429,7 @@ body {
         height: 58px;
     }
     .card-group .card {
-        margin-right: -15px;
+        margin-right: 5px; /* Sovrascrive il margine negativo e distanzia le carte */
     }
     .combination-cards .card {
         width: 38px;
@@ -439,6 +437,6 @@ body {
         font-size: 0.9rem;
     }
     .hand-title, .btn, .manche-title, .manche-desc, .info-card {
-        font-size: 0.85em; 
+        font-size: 0.85em;
     }
 }
