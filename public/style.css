@@ -194,19 +194,18 @@ body {
     box-shadow: 0 4px 10px rgba(255, 193, 7, 0.5);
 }
 
-/* ===== CORREZIONE DEFINITIVA ANTI-SFARFALLIO ===== */
 .card.sortable-ghost {
     opacity: 0.4;
     background: #a0d4ff;
     border: 2px dashed #2980b9;
 }
 .card.sortable-drag {
-    transition: none; /* Disattiva le transizioni CSS durante il drag */
-    transform: none; /* Annulla anche l'effetto :hover */
-    box-shadow: 0 8px 20px rgba(0,0,0,0.3); /* Ombra più pronunciata */
+    transition: none;
+    transform: none;
+    box-shadow: 0 8px 20px rgba(0,0,0,0.3);
 }
 .card.sortable-fallback {
-    opacity: 0 !important; /* Nasconde l'originale se usiamo il fallback */
+    opacity: 0 !important;
 }
 
 
@@ -222,6 +221,8 @@ body {
     color: white;
     font-size: 2.5rem;
 }
+
+/* Stili per valore e seme del Jolly */
 .card .joker-value {
     position: absolute;
     bottom: 3px;
@@ -232,6 +233,13 @@ body {
     background: rgba(255,255,255,0.7);
     padding: 1px 4px;
     border-radius: 3px;
+}
+.card .joker-suit {
+    position: absolute;
+    top: 3px;
+    left: 5px;
+    font-size: 1rem;
+    font-weight: 700;
 }
 
 /* PLAYER HAND STYLES */
@@ -256,13 +264,20 @@ body {
 }
 .card-group {
     display: flex;
-    gap: 5px;
     border: 2px dashed rgba(255,255,255,0.2);
     padding: 0.5rem;
     border-radius: 8px;
     min-width: 75px;
     align-content: flex-start;
 }
+.card-group .card {
+    margin-right: -25px; /* Sovrappone le carte per un look più compatto */
+}
+.card-group .card:last-child {
+    margin-right: 0;
+}
+
+
 #player-hand-container::-webkit-scrollbar { height: 8px; }
 #player-hand-container::-webkit-scrollbar-track { background: rgba(0,0,0,0.2); border-radius: 4px; }
 #player-hand-container::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.3); border-radius: 4px; }
@@ -351,50 +366,79 @@ body {
 .connection-status.connecting { background: #ffc107; color: #333; }
 .connection-status.disconnected { background: #dc3545; }
 
-/* RESPONSIVE DESIGN */
+/* ========================================================== */
+/* ===== NUOVO LAYOUT RESPONSIVE MIGLIORATO ===== */
+/* ========================================================== */
+
+/* Per schermi medi e piccoli (tablet e telefoni in orizzontale) */
 @media (max-width: 900px) {
-    #game-screen {
-        grid-template-columns: 1fr;
-        grid-template-areas:
-            "info"
-            "manche"
-            "players"
-            "table"
-            "hand";
+    body {
+        padding: 5px;
     }
-    .game-area { flex-direction: column; }
+    
+    .game-area {
+        flex-direction: column; 
+        align-items: center;
+    }
     .center-area {
-        flex-direction: row;
+        flex-direction: row; 
         width: 100%;
         justify-content: space-around;
     }
+    .table-area {
+        width: 100%;
+        margin-top: 1rem;
+    }
+    .players {
+        grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    }
 }
 
+/* Per schermi piccoli (telefoni) */
 @media (max-width: 600px) {
-    body { padding: 5px; }
     #setup-screen, #waiting-screen { padding: 1.5rem 1rem; }
     .card {
-        width: 45px; /* Ulteriore riduzione per schermi piccoli */
+        width: 45px; 
         height: 65px;
         font-size: 1rem;
     }
-    .hand-title {
-        font-size: 1em;
+    .card-group .card {
+        margin-right: -20px;
     }
-    .btn {
-        font-size: 0.9rem;
-        padding: 0.6rem 1rem;
-    }
+    
     .combination-cards .card {
         width: 35px;
         height: 50px;
         font-size: 0.8rem;
     }
+    .btn {
+        font-size: 0.9rem;
+        padding: 0.6rem 1rem;
+    }
+    .players {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+    }
+    .hand-title {
+        font-size: 1em;
+    }
 }
 
-@media (max-width: 400px) {
+/* Per schermi molto piccoli */
+@media (max-width: 420px) {
     .card {
-        width: 40px; /* Riduzione finale per schermi molto piccoli */
-        height: 55px;
+        width: 40px;
+        height: 58px;
+    }
+    .card-group .card {
+        margin-right: -15px;
+    }
+    .combination-cards .card {
+        width: 38px;
+        height: 54px;
+        font-size: 0.9rem;
+    }
+    .hand-title, .btn, .manche-title, .manche-desc, .info-card {
+        font-size: 0.85em; 
     }
 }

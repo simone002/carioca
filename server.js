@@ -25,19 +25,18 @@ function findRoomBySocketId(socketId) {
 }
 
 io.on('connection', (socket) => {
-    console.log(`Un utente si è connesso: ${socket.id}`);
-
+    // ... createRoom, joinRoom, updateGroups, draw, discard handlers
     socket.on('createRoom', (playerName) => {
         let roomCode = Math.random().toString(36).substring(2, 8).toUpperCase();
         while(rooms[roomCode]){ roomCode = Math.random().toString(36).substring(2, 8).toUpperCase(); }
         socket.join(roomCode);
         rooms[roomCode] = {
-            hostId: socket.id, // Il primo che crea è l'host
+            hostId: socket.id, 
             players: {
                 [socket.id]: { id: socket.id, name: playerName, hand: [], score: 0, dressed: false, groups: [] }
             },
             gameState: {
-                roomCode: roomCode, players: {}, currentPlayerId: null, currentManche: 1, deck: [], discardPile: [], tableCombinations: [], gamePhase: 'waiting', turnPhase: 'draw', hasDrawn: false,
+                 roomCode: roomCode, players: {}, currentPlayerId: null, currentManche: 1, deck: [], discardPile: [], tableCombinations: [], gamePhase: 'waiting', turnPhase: 'draw', hasDrawn: false,
             }
         };
         socket.emit('roomCreated', { roomCode, playerId: socket.id });
@@ -71,7 +70,6 @@ io.on('connection', (socket) => {
         }
     });
     
-    // ... (tutti gli altri handler rimangono invariati)
     socket.on('updateGroups', (newGroups) => {
         const roomCode = findRoomBySocketId(socket.id);
         if (!roomCode) return;
@@ -229,7 +227,7 @@ io.on('connection', (socket) => {
             for (const combo of state.tableCombinations) {
                 let comboCardsWithJokerValues = combo.cards.map(c => {
                     if (c.isJoker && c.assignedValue) {
-                        return { ...c, value: c.assignedValue, suit: c.assignedSuit, isVirtual: true };
+                        return { value: c.assignedValue, suit: c.assignedSuit, isVirtual: true, points: gameLogic.getCardPoints(c.assignedValue) };
                     }
                     return c;
                 });
@@ -296,21 +294,29 @@ io.on('connection', (socket) => {
         }
     });
 
-
     socket.on('disconnect', () => {
-        // Gestione disconnessione...
+        const roomCode = findRoomBySocketId(socket.id);
+        if (roomCode && rooms[roomCode]) {
+            const disconnectedPlayerName = rooms[roomCode].players[socket.id]?.name || 'Un giocatore';
+            delete rooms[roomCode].players[socket.id];
+            
+            if (Object.keys(rooms[roomCode].players).length < 2 && rooms[roomCode].gameState.gamePhase === 'playing') {
+                io.to(roomCode).emit('message', { title: "Partita Terminata", message: `${disconnectedPlayerName} si è disconnesso. La partita finisce.`});
+                delete rooms[roomCode];
+            } else if (Object.keys(rooms[roomCode].players).length === 0) {
+                 delete rooms[roomCode];
+            } else {
+                 io.to(roomCode).emit('message', { title: "Giocatore Disconnesso", message: `${disconnectedPlayerName} ha lasciato la stanza.`});
+                 updateRoomState(roomCode);
+            }
+        }
     });
 });
 
 function updateRoomState(roomCode) {
     const room = rooms[roomCode];
     if (!room) return;
-    const publicGameState = { 
-        ...room.gameState, 
-        players: {}, 
-        deckCount: room.gameState.deck ? room.gameState.deck.length : 0,
-        hostId: room.hostId // Invia l'ID dell'host
-    };
+    const publicGameState = { ...room.gameState, players: {}, deckCount: room.gameState.deck ? room.gameState.deck.length : 0, hostId: room.hostId };
     delete publicGameState.deck;
     for (const playerId in room.players) {
         publicGameState.players[playerId] = {
@@ -339,7 +345,9 @@ function startGame(roomCode) {
     });
     for(let i = 0; i < 13; i++) {
         playerIds.forEach(pid => {
-            room.players[pid].hand.push(state.deck.pop());
+            if (state.deck.length > 0) {
+                room.players[pid].hand.push(state.deck.pop());
+            }
         });
     }
     playerIds.forEach(pid => {
@@ -359,6 +367,7 @@ function endTurn(roomCode) {
     if (!room) return;
     const state = room.gameState;
     const playerIds = Object.keys(room.players);
+    if(playerIds.length === 0) return;
     const currentPlayerIndex = playerIds.indexOf(state.currentPlayerId);
     const nextPlayerIndex = (currentPlayerIndex + 1) % playerIds.length;
     state.currentPlayerId = playerIds[nextPlayerIndex];
@@ -379,7 +388,7 @@ function endManche(roomCode) {
     playerIds.forEach(pid => {
         const player = room.players[pid];
         let points = 0;
-        if (pid !== winnerId) {
+        if (pid !== winnerId && player.hand) {
             points = player.hand.reduce((sum, card) => sum + card.points, 0);
             player.score += points;
         }

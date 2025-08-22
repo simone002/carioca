@@ -188,6 +188,8 @@ function updateDiscardPile() {
         discardContainer.innerHTML = '<div class="card back">Vuoto</div>';
     }
 }
+
+// ===== MODIFICA QUI =====
 function updateTableCombinations() {
     const tableEl = document.getElementById('table-combinations');
     const combinations = gameState.tableCombinations || [];
@@ -202,18 +204,32 @@ function updateTableCombinations() {
         let cardsHTML = '';
         combo.cards.forEach(card => {
             let jokerValueHTML = '';
+            let jokerSuitHTML = '';
+            let suitColorClass = card.isRed ? 'red' : 'black';
+
+            // Logica per visualizzare valore e seme del Jolly
             if (card.isJoker && card.assignedValue) {
                 jokerValueHTML = `<span class="joker-value">${card.assignedValue}</span>`;
+                const isRedSuit = card.assignedSuit === '♥' || card.assignedSuit === '♦';
+                jokerSuitHTML = `<span class="joker-suit ${isRedSuit ? 'red' : 'black'}">${card.assignedSuit}</span>`;
             }
+
             const onClickAction = (card.isJoker && card.assignedValue) 
                 ? `onclick="attemptJokerSwap('${card.id}', ${comboIndex})"` 
                 : '';
-            cardsHTML += `<div class="card ${card.isJoker ? 'joker' : (card.isRed ? 'red' : 'black')}" ${onClickAction}>${card.isJoker ? '🃏' : card.value + card.suit}${jokerValueHTML}</div>`;
+
+            cardsHTML += `<div class="card ${card.isJoker ? 'joker' : suitColorClass}" ${onClickAction}>
+                            ${card.isJoker ? '🃏' : card.value + card.suit}
+                            ${jokerValueHTML}
+                            ${jokerSuitHTML}
+                          </div>`;
         });
         comboEl.innerHTML = `<div class="combination-title">${combo.player}: ${combo.type}</div><div class="combination-cards">${cardsHTML}</div>`;
         tableEl.appendChild(comboEl);
     });
 }
+
+
 function updateButtons() {
     const isMyTurn = gameState.currentPlayerId === myPlayerId;
     const hasSelected = selectedCardIndexes.size > 0;
@@ -228,29 +244,22 @@ function updateButtons() {
     document.getElementById('attach-btn').disabled = !(canPlay && hasSelected && myPlayerInfo.dressed);
     document.getElementById('discard-btn').disabled = !canDiscard;
 }
-
-// ===== MODIFICA CHIAVE QUI =====
 function createNewGroup(addToDom = true) {
     const container = document.getElementById('player-hand-container');
     const newGroup = document.createElement('div');
     newGroup.className = 'card-group';
     if (addToDom) container.appendChild(newGroup);
-
-    // Rileva se il dispositivo è touch
     const isTouchDevice = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
-
     new Sortable(newGroup, {
         group: 'player-hand',
         animation: 150,
-        // Usa il fallback solo su dispositivi NON-touch (PC con mouse)
-        forceFallback: !isTouchDevice, 
+        forceFallback: !isTouchDevice,
         onEnd: function () {
             setTimeout(sendGroupsToServer, 0);
         }
     });
     return newGroup;
 }
-
 function createCardElement(cardData) {
     const cardEl = document.createElement('div');
     cardEl.className = `card ${cardData.isJoker ? 'joker' : (cardData.isRed ? 'red' : 'black')}`;
@@ -280,8 +289,6 @@ function sendGroupsToServer() {
     }
     socket.emit('updateGroups', groups);
 }
-
-// ... (tutte le altre funzioni di gestione schermate e modal rimangono invariate)
 function updateConnectionStatus(status) { const statusEl = document.getElementById('connection-status'); statusEl.className = `connection-status ${status}`; statusEl.textContent = status === 'connected' ? 'Online' : 'Connecting...'; }
 function showJoinRoom() { document.getElementById('join-room').style.display = 'block'; }
 function showWaitingScreen(roomCode) {
