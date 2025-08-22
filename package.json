@@ -1,16 +1,21 @@
 {
   "name": "carioca",
   "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
+  "description": "Gioco di carte Carioca multiplayer",
+  "main": "server.js",
   "scripts": {
+    "start": "node server.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
-  "keywords": [],
+  "keywords": [
+    "carioca",
+    "card-game",
+    "multiplayer"
+  ],
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "express": "^5.1.0",
-    "socket.io": "^4.8.1"
+    "express": "^4.19.2",
+    "socket.io": "^4.7.5"
   }
 }
