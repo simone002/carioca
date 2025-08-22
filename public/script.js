@@ -236,10 +236,14 @@ function createNewGroup(addToDom = true) {
     newGroup.className = 'card-group';
     if (addToDom) container.appendChild(newGroup);
 
+    // Rileva se il dispositivo è touch
+    const isTouchDevice = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+
     new Sortable(newGroup, {
         group: 'player-hand',
         animation: 150,
-        forceFallback: true, // <-- AGGIUNGI QUESTA OPZIONE
+        // Usa il fallback solo su dispositivi NON-touch (PC con mouse)
+        forceFallback: !isTouchDevice, 
         onEnd: function () {
             setTimeout(sendGroupsToServer, 0);
         }
@@ -304,9 +308,9 @@ function showGameScreen() {
     document.getElementById('game-screen').style.display = 'block';
 }
 function showMessage(title, message) {
+    const modal = document.getElementById('message-modal');
     document.getElementById('modal-title').textContent = title;
     document.getElementById('modal-message').innerHTML = message.replace(/\n/g, '<br>');
-    const modal = document.getElementById('message-modal');
     modal.style.display = 'flex';
 }
 function closeModal() { 
