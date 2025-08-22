@@ -2,7 +2,6 @@
 @import url('https://fonts.googleapis.com/css2?family=Roboto:wght@400;700&display=swap');
 
 :root {
-    /* Definiamo la dimensione del font principale in modo fluido */
     font-size: clamp(14px, 1.5vw, 16px);
 }
 
@@ -25,7 +24,7 @@ body {
 
 .container {
     width: 100%;
-    max-width: 1400px; /* Aumentato per schermi più grandi */
+    max-width: 1400px;
     margin: 0 auto;
 }
 
@@ -225,12 +224,13 @@ body {
     text-align: center;
     margin-bottom: 1rem;
 }
+/* MODIFICA CHIAVE QUI */
 #player-hand-container {
     display: flex;
+    flex-direction: column; /* Impila i gruppi verticalmente */
     gap: 1rem;
     padding: 0.5rem;
-    overflow-x: auto;
-    min-height: 115px; /* Altezza minima per contenere le carte scalate */
+    min-height: 115px;
 }
 .card-group {
     display: flex;
@@ -240,6 +240,7 @@ body {
     border-radius: 8px;
     min-width: fit-content;
     align-content: flex-start;
+    overflow-x: auto; /* Aggiunge lo scroll orizzontale solo se necessario */
 }
 #player-hand-container::-webkit-scrollbar { height: 8px; }
 #player-hand-container::-webkit-scrollbar-track { background: rgba(0,0,0,0.2); border-radius: 4px; }
@@ -329,7 +330,7 @@ body {
 .connection-status.connecting { background: #ffc107; color: #333; }
 .connection-status.disconnected { background: #dc3545; }
 
-/* LAYOUT RESPONSIVE CON MANTENIMENTO DELLA STRUTTURA */
+/* LAYOUT RESPONSIVE */
 @media (max-width: 800px) {
     .game-area {
         flex-direction: column;

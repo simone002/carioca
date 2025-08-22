@@ -4,6 +4,7 @@ let originalAction = null;
 let originalSelection = [];
 let jokerAssignments = [];
 let isSwappingJoker = false;
+let previousPlayerId = null; // NUOVA VARIABILE: per tracciare il turno precedente
 
 const socket = io();
 let gameState = {};
@@ -16,7 +17,15 @@ let selectedCardIndexes = new Set();
 socket.on('connect', () => { updateConnectionStatus('connected'); myPlayerId = socket.id; });
 socket.on('disconnect', () => { updateConnectionStatus('disconnected'); });
 socket.on('roomCreated', ({ roomCode, playerId }) => { myPlayerId = playerId; showWaitingScreen(roomCode); });
+
 socket.on('gameStateUpdate', (serverState) => {
+    // ===== MODIFICA CHIAVE QUI =====
+    // Controlla se il turno è appena passato a questo giocatore
+    if (previousPlayerId !== myPlayerId && serverState.currentPlayerId === myPlayerId && serverState.gamePhase === 'playing') {
+        showMessage("È il tuo turno!", "Tocca a te giocare.");
+    }
+    previousPlayerId = serverState.currentPlayerId; // Aggiorna il tracker del turno
+
     gameState = serverState;
     console.log("Nuovo stato ricevuto:", gameState);
     if (gameState.currentPlayerId !== myPlayerId) selectedCardIndexes.clear();
@@ -29,20 +38,10 @@ socket.on('gameStateUpdate', (serverState) => {
         updateUI(); 
     }
 });
+
 socket.on('error', (message) => { showMessage('Errore', message); });
 socket.on('playerLeft', (message) => { showMessage('Partita terminata', message); setTimeout(() => location.reload(), 3000); });
 socket.on('message', ({ title, message }) => { showMessage(title, message.replace(/\n/g, '<br>')); });
-// Aggiungi questo in script.js, dopo la sezione # SOCKET EVENT HANDLERS
-
-// ==========================================================
-// # KEEP-ALIVE PER EVITARE LO STANDBY
-// ==========================================================
-setInterval(() => {
-    if (socket.connected) {
-        socket.emit('keep-alive');
-        console.log("Ping inviato per mantenere il server attivo.");
-    }
-}, 300000); // 300000 millisecondi = 5 minuti
 
 // ==========================================================
 // # GAME ACTIONS
@@ -199,8 +198,6 @@ function updateDiscardPile() {
         discardContainer.innerHTML = '<div class="card back">Vuoto</div>';
     }
 }
-
-// ===== MODIFICA QUI =====
 function updateTableCombinations() {
     const tableEl = document.getElementById('table-combinations');
     const combinations = gameState.tableCombinations || [];
@@ -217,30 +214,20 @@ function updateTableCombinations() {
             let jokerValueHTML = '';
             let jokerSuitHTML = '';
             let suitColorClass = card.isRed ? 'red' : 'black';
-
-            // Logica per visualizzare valore e seme del Jolly
             if (card.isJoker && card.assignedValue) {
                 jokerValueHTML = `<span class="joker-value">${card.assignedValue}</span>`;
                 const isRedSuit = card.assignedSuit === '♥' || card.assignedSuit === '♦';
                 jokerSuitHTML = `<span class="joker-suit ${isRedSuit ? 'red' : 'black'}">${card.assignedSuit}</span>`;
             }
-
             const onClickAction = (card.isJoker && card.assignedValue) 
                 ? `onclick="attemptJokerSwap('${card.id}', ${comboIndex})"` 
                 : '';
-
-            cardsHTML += `<div class="card ${card.isJoker ? 'joker' : suitColorClass}" ${onClickAction}>
-                            ${card.isJoker ? '🃏' : card.value + card.suit}
-                            ${jokerValueHTML}
-                            ${jokerSuitHTML}
-                          </div>`;
+            cardsHTML += `<div class="card ${card.isJoker ? 'joker' : suitColorClass}" ${onClickAction}>${card.isJoker ? '🃏' : card.value + card.suit}${jokerValueHTML}${jokerSuitHTML}</div>`;
         });
         comboEl.innerHTML = `<div class="combination-title">${combo.player}: ${combo.type}</div><div class="combination-cards">${cardsHTML}</div>`;
         tableEl.appendChild(comboEl);
     });
 }
-
-
 function updateButtons() {
     const isMyTurn = gameState.currentPlayerId === myPlayerId;
     const hasSelected = selectedCardIndexes.size > 0;
@@ -300,6 +287,10 @@ function sendGroupsToServer() {
     }
     socket.emit('updateGroups', groups);
 }
+
+// ==========================================================
+// # FUNZIONI DI GESTIONE SCHERMATE E MODAL
+// ==========================================================
 function updateConnectionStatus(status) { const statusEl = document.getElementById('connection-status'); statusEl.className = `connection-status ${status}`; statusEl.textContent = status === 'connected' ? 'Online' : 'Connecting...'; }
 function showJoinRoom() { document.getElementById('join-room').style.display = 'block'; }
 function showWaitingScreen(roomCode) {
