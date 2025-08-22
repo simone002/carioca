@@ -43,6 +43,11 @@ io.on('connection', (socket) => {
         updateRoomState(roomCode);
     });
 
+
+    socket.on('keep-alive', () => {
+        // Ricevuto il ping, non fa nulla se non mantenere viva la connessione.
+    });
+
     socket.on('joinRoom', ({ roomCode, playerName }) => {
         roomCode = roomCode.toUpperCase();
         const room = rooms[roomCode];

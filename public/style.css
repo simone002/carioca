@@ -13,17 +13,12 @@ body {
     color: white;
     min-height: 100vh;
     padding: 10px;
-    /* Modifica per centrare il container scalato */
-    display: flex;
-    align-items: center;
-    justify-content: center;
 }
 
 .container {
     width: 100%;
     max-width: 1200px;
     margin: 0 auto;
-    transition: transform 0.3s ease; /* Aggiunge una transizione fluida allo scaling */
 }
 
 .header {
@@ -271,7 +266,7 @@ body {
     border: 2px dashed rgba(255,255,255,0.2);
     padding: 0.5rem;
     border-radius: 8px;
-    min-width: 75px;
+    min-width: fit-content; /* Si adatta al contenuto */
     align-content: flex-start;
 }
 
@@ -365,33 +360,70 @@ body {
 
 
 /* ========================================================== */
-/* ===== SCALING GLOBALE PER MOBILE ===== */
+/* ===== LAYOUT RESPONSIVE OTTIMIZZATO ===== */
 /* ========================================================== */
 
-@media (max-width: 900px) {
-    /* Calcoliamo il fattore di scala in base alla larghezza dello schermo */
-    .container {
-        transform: scale(calc(100vw / 950));
-        transform-origin: top left;
-        /* Potrebbe essere necessario regolare la larghezza del body per evitare barre di scorrimento */
-        width: 950px; 
+@media (max-width: 800px) {
+    body {
+        padding: 5px;
+    }
+    .game-area {
+        flex-direction: column;
+        align-items: stretch;
+    }
+    .center-area {
+        flex-direction: row;
+        width: 100%;
+        justify-content: space-around;
+    }
+    .table-area {
+        width: 100%;
+        margin-top: 1rem;
     }
 
-    body {
-        /* Assicura che ci sia spazio per il container scalato */
-        height: calc(100vh * (950 / 100vw));
-        width: 100%;
-        overflow: hidden;
+    /* MODIFICA CHIAVE: La mano va a capo su mobile */
+    #player-hand-container {
+        flex-wrap: wrap;
+        overflow-x: hidden;
+        min-height: auto;
     }
 }
 
 @media (max-width: 600px) {
-    .container {
-        /* Aumenta leggermente lo scaling per una migliore leggibilità su schermi molto piccoli */
-        transform: scale(calc(100vw / 800));
-        width: 800px;
+    .players {
+        grid-template-columns: 1fr 1fr;
     }
-     body {
-        height: calc(100vh * (800 / 100vw));
+    
+    /* Ridimensionamento generale per telefoni */
+    .card {
+        width: 50px;
+        height: 70px;
+        font-size: 1.2rem;
+    }
+    .combination-cards .card {
+        width: 40px;
+        height: 56px;
+        font-size: 0.9rem;
+    }
+    .btn {
+        font-size: 0.9em;
+        padding: 0.7rem 1rem;
+    }
+    .info-card, .manche-info {
+        padding: 0.5rem;
+    }
+    .manche-title { font-size: 1.1em; }
+}
+
+@media (max-width: 420px) {
+    .card {
+        width: 42px;
+        height: 60px;
+        font-size: 1.1rem;
+    }
+    .combination-cards .card {
+        width: 35px;
+        height: 50px;
+        font-size: 0.8rem;
     }
 }

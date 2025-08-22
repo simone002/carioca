@@ -32,6 +32,17 @@ socket.on('gameStateUpdate', (serverState) => {
 socket.on('error', (message) => { showMessage('Errore', message); });
 socket.on('playerLeft', (message) => { showMessage('Partita terminata', message); setTimeout(() => location.reload(), 3000); });
 socket.on('message', ({ title, message }) => { showMessage(title, message.replace(/\n/g, '<br>')); });
+// Aggiungi questo in script.js, dopo la sezione # SOCKET EVENT HANDLERS
+
+// ==========================================================
+// # KEEP-ALIVE PER EVITARE LO STANDBY
+// ==========================================================
+setInterval(() => {
+    if (socket.connected) {
+        socket.emit('keep-alive');
+        console.log("Ping inviato per mantenere il server attivo.");
+    }
+}, 300000); // 300000 millisecondi = 5 minuti
 
 // ==========================================================
 // # GAME ACTIONS
