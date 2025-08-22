@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Carioca Online</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div id="connection-status" class="connection-status connecting">Connessione...</div>
+    
+    <div class="container">
+        <div class="header">
+            <h1>🃏 Carioca Online</h1>
+        </div>
+
+        <!-- Setup Screen -->
+        <div id="setup-screen">
+            <div class="setup-form">
+                <h2>Benvenuto alla Carioca!</h2>
+                <p style="margin-bottom: 20px;">Crea una stanza o unisciti a una partita esistente</p>
+                
+                <div class="form-group">
+                    <label for="player-name">Il tuo nome:</label>
+                    <input type="text" id="player-name" placeholder="Inserisci il tuo nome" maxlength="20">
+                </div>
+                
+                <div class="controls">
+                    <button class="btn primary" onclick="createRoom()">Crea Stanza</button>
+                    <button class="btn" onclick="showJoinRoom()">Unisciti</button>
+                </div>
+                
+                <div id="join-room" style="display: none; margin-top: 20px;">
+                    <div class="form-group">
+                        <label for="room-code">Codice stanza:</label>
+                        <input type="text" id="room-code" placeholder="Inserisci codice" maxlength="6">
+                    </div>
+                    <button class="btn primary" onclick="joinRoom()">Unisciti alla Partita</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Waiting Screen -->
+        <div id="waiting-screen" style="display: none;">
+            <div class="setup-form">
+                <h2>Stanza Creata!</h2>
+                <p>Condividi questo codice con la tua ragazza:</p>
+                <div id="room-code-display" class="room-code"></div>
+                <p style="margin: 20px 0;">In attesa del secondo giocatore...</p>
+                <div id="waiting-players"></div>
+            </div>
+        </div>
+
+        <!-- Game Screen -->
+        <div id="game-screen" style="display: none;">
+            <div class="game-info">
+                <div class="info-card">
+                    <div>Partita: <span id="game-round">1</span>/8</div>
+                </div>
+                <div class="info-card">
+                    <div>Turno: <span id="current-turn">In attesa...</span></div>
+                </div>
+            </div>
+
+            <div class="manche-info">
+                <div class="manche-title" id="manche-title">Manche 1: Coppia</div>
+                <div class="manche-desc" id="manche-desc">Devi calare una coppia (2 carte uguali)</div>
+            </div>
+
+            <div class="players">
+                <div id="player1" class="player">
+                    <div class="player-name">Giocatore 1</div>
+                    <div class="player-score">Punti: 0</div>
+                    <div class="player-cards">Carte: 13</div>
+                </div>
+                <div id="player2" class="player">
+                    <div class="player-name">Giocatore 2</div>
+                    <div class="player-score">Punti: 0</div>
+                    <div class="player-cards">Carte: 13</div>
+                </div>
+            </div>
+
+            <div class="game-area">
+                <div class="center-area">
+                    <div class="deck">
+                        <div class="deck-title">Mazzo</div>
+                        <div class="card back" id="deck-card" onclick="drawFromDeck()">🂠</div>
+                        <div style="font-size: 12px; margin-top: 5px;">
+                            <span id="deck-count">104</span> carte
+                        </div>
+                    </div>
+                    <div class="discard">
+                        <div class="discard-title">Scarto</div>
+                        <div id="discard-pile">
+                            <div class="card back">Vuoto</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="table-area">
+                    <div class="table-title">Combinazioni sul tavolo</div>
+                    <div id="table-combinations" class="combinations">
+                        <div style="text-align: center; opacity: 0.6; padding: 20px;">
+                            Nessuna combinazione ancora calata
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="actions">
+                <button class="btn" id="dress-btn" onclick="dressHand()" disabled>Regola</button>
+                <button class="btn" id="attach-btn" onclick="attachCards()" disabled>Combinazione</button>
+                <button class="btn danger" id="discard-btn" onclick="discardCard()" disabled>Scarta</button>
+            </div>
+
+            <div class="hand">
+                <div class="hand-title">
+                    Le tue carte (trascina per raggruppare)
+                    <button id="add-group-btn" onclick="createNewGroup()">+ Crea Gruppo</button>
+                </div>
+                <div id="player-hand-container" class="cards-container">
+                    </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal for messages -->
+    <div id="message-modal" class="modal">
+        <div class="modal-content">
+            <h3 id="modal-title">Messaggio</h3>
+            <p id="modal-message">Contenuto del messaggio</p>
+            <button class="btn primary" onclick="closeModal()">OK</button>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/sortablejs@latest/Sortable.min.js"></script>
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="logic.js"></script> 
+    <script src="script.js"></script>
+</body>
+</html>
