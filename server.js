@@ -143,6 +143,15 @@ io.on('connection', (socket) => {
 
         if (state.currentPlayerId !== socket.id || !state.hasDrawn || player.dressed) return;
 
+        // ✅ NUOVO BLOCCO DI CODICE DA AGGIUNGERE QUI
+        if (player.hand.length === selectedIndexes.length) {
+            return socket.emit('message', {
+                title: "Mossa non permessa",
+                message: "Non puoi calare tutte le carte che hai in mano. Devi conservarne almeno una per lo scarto finale."
+            });
+        }
+        // ✅ FINE DEL NUOVO BLOCCO
+
         const originalSelectedCards = selectedIndexes.map(i => player.hand[i]);
         if (originalSelectedCards.some(card => card === undefined)) return;
         
@@ -176,17 +185,30 @@ io.on('connection', (socket) => {
         }
     });
 
+    // In server.js
+
     socket.on('attachCards', (data) => {
         const { selectedIndexes, jokerAssignments = [] } = data;
         const roomCode = findRoomBySocketId(socket.id);
         if (!roomCode) return;
+
         const room = rooms[roomCode];
         const state = room.gameState;
         const player = room.players[socket.id];
 
+        // Controlli di base sullo stato del gioco e del giocatore
         if (state.currentPlayerId !== socket.id || !state.hasDrawn || !player.dressed || state.turnPhase !== 'play') return;
         if (!selectedIndexes || selectedIndexes.length === 0) return;
 
+        // Controllo per impedire di calare tutte le carte in mano
+        if (player.hand.length === selectedIndexes.length) {
+            return socket.emit('message', {
+                title: "Mossa non permessa",
+                message: "Non puoi calare tutte le carte che hai in mano. Devi conservarne almeno una per lo scarto finale."
+            });
+        }
+
+        // Prepara le carte selezionate, applicando i valori scelti per i jolly
         const originalSelectedCards = selectedIndexes.map(i => player.hand[i]);
         if (originalSelectedCards.some(card => card === undefined)) return;
 
@@ -197,18 +219,26 @@ io.on('connection', (socket) => {
                 const selectionIndexToReplace = virtualCards.findIndex(c => c.id === jokerCardInHand.id);
                 if (selectionIndexToReplace !== -1) {
                     virtualCards[selectionIndexToReplace] = { ...assignment.becomes, points: gameLogic.getCardPoints(assignment.becomes.value), isVirtual: true };
-                    originalSelectedCards.find(c => c.id === jokerCardInHand.id).assignedValue = assignment.becomes.value;
-                    originalSelectedCards.find(c => c.id === jokerCardInHand.id).assignedSuit = assignment.becomes.suit;
+                    const originalJoker = originalSelectedCards.find(c => c.id === jokerCardInHand.id);
+                    if(originalJoker) {
+                        originalJoker.assignedValue = assignment.becomes.value;
+                        originalJoker.assignedSuit = assignment.becomes.suit;
+                    }
                 }
             }
         });
 
+        // === LOGICA PER CALARE UNA NUOVA COMBINAZIONE (>= 3 CARTE) ===
         if (selectedIndexes.length >= 3) {
             const jokers = virtualCards.filter(c => c.isJoker || c.isVirtual).length;
             const nonJokers = virtualCards.filter(c => !c.isJoker && !c.isVirtual);
             let combinationType = null;
-            if (gameLogic.isValidSet(nonJokers, jokers)) combinationType = virtualCards.length === 3 ? 'Tris' : 'Poker';
-            else if (gameLogic.isValidRun(nonJokers, jokers)) combinationType = 'Scala';
+
+            if (gameLogic.isValidSet(nonJokers, jokers)) {
+                combinationType = virtualCards.length === 3 ? 'Tris' : 'Poker';
+            } else if (gameLogic.isValidRun(nonJokers, jokers)) {
+                combinationType = 'Scala';
+            }
 
             if (combinationType) {
                 const selectedCardIds = originalSelectedCards.map(c => c.id);
@@ -216,49 +246,83 @@ io.on('connection', (socket) => {
                 player.groups.forEach(group => {
                     group.splice(0, group.length, ...group.filter(id => !selectedCardIds.includes(id)));
                 });
-                state.tableCombinations.push({ player: player.name, type: combinationType, cards: originalSelectedCards });
+                const newCombination = { player: player.name, type: combinationType, cards: originalSelectedCards };
+                if (combinationType === 'Scala') {
+                    sortCards(newCombination.cards);
+                }
+                state.tableCombinations.push(newCombination);
                 socket.emit('message', { title: "Combinazione Calata!", message: `Hai formato: ${combinationType}.` });
                 updateRoomState(roomCode);
                 return;
             }
         }
 
+        // === LOGICA PER ATTACCARE UNA SOLA CARTA ===
         if (selectedIndexes.length === 1) {
-            const cardToAttach = virtualCards[0];
+            const originalCardToAttach = originalSelectedCards[0];
+
+            // 1. TENTA PRIMA LO SCAMBIO DEL JOLLY
             for (const combo of state.tableCombinations) {
-                let comboCardsWithJokerValues = combo.cards.map(c => {
-                    if (c.isJoker && c.assignedValue) {
-                        return { ...c, value: c.assignedValue, suit: c.assignedSuit, isVirtual: true, points: gameLogic.getCardPoints(c.assignedValue) };
-                    }
-                    return c;
-                });
+                const jokerIndexOnTable = combo.cards.findIndex(c =>
+                    c.isJoker &&
+                    c.assignedValue === originalCardToAttach.value &&
+                    c.assignedSuit === originalCardToAttach.suit
+                );
 
-                const newComboCards = [...comboCardsWithJokerValues, cardToAttach];
-                let isValidAttach = false;
-                
-                const virtualJokers = newComboCards.filter(c => c.isJoker || c.isVirtual).length;
-                const virtualNonJokers = newComboCards.filter(c => !c.isJoker && !c.isVirtual);
+                if (jokerIndexOnTable !== -1) {
+                    const jokerOnTable = combo.cards[jokerIndexOnTable];
+                    const handCardIndex = player.hand.findIndex(c => c.id === originalCardToAttach.id);
 
-                if (gameLogic.isValidSet(virtualNonJokers, virtualJokers)) isValidAttach = true;
-                else if (gameLogic.isValidRun(virtualNonJokers, virtualJokers)) isValidAttach = true;
+                    delete jokerOnTable.assignedValue;
+                    delete jokerOnTable.assignedSuit;
 
-                if (isValidAttach) {
-                    const originalCardToAttach = originalSelectedCards[0];
+                    combo.cards[jokerIndexOnTable] = originalCardToAttach;
+                    player.hand[handCardIndex] = jokerOnTable;
+
+                    player.groups.forEach(group => {
+                        const i = group.indexOf(originalCardToAttach.id);
+                        if (i > -1) group[i] = jokerOnTable.id;
+                    });
+                    
+                    if (combo.type === 'Scala') sortCards(combo.cards);
+
+                    socket.emit('message', { title: "Jolly Scambiato!", message: "Hai preso il Jolly dal tavolo!" });
+                    updateRoomState(roomCode);
+                    return;
+                }
+            }
+
+            // 2. SE NESSUNO SCAMBIO È AVVENUTO, TENTA L'ATTACCO NORMALE
+            const virtualCardToAttach = virtualCards[0];
+            for (const combo of state.tableCombinations) {
+                const comboJokers = combo.cards.filter(c => c.isJoker);
+                const comboRealCards = combo.cards.filter(c => !c.isJoker);
+                const newCardIsJoker = virtualCardToAttach.isJoker || virtualCardToAttach.isVirtual;
+                const allJokersCount = comboJokers.length + (newCardIsJoker ? 1 : 0);
+                const allRealCards = newCardIsJoker ? [...comboRealCards] : [...comboRealCards, virtualCardToAttach];
+
+                if (gameLogic.isValidSet(allRealCards, allJokersCount) || gameLogic.isValidRun(allRealCards, allJokersCount)) {
                     combo.cards.push(originalCardToAttach);
+                    if (combo.type === 'Scala' || gameLogic.isValidRun(allRealCards, allJokersCount)) {
+                        combo.type = 'Scala';
+                        sortCards(combo.cards);
+                    }
+                    
                     const cardIndexInHand = player.hand.findIndex(c => c.id === originalCardToAttach.id);
                     if (cardIndexInHand > -1) player.hand.splice(cardIndexInHand, 1);
                     player.groups.forEach(group => {
                         const indexInGroup = group.indexOf(originalCardToAttach.id);
                         if (indexInGroup > -1) group.splice(indexInGroup, 1);
                     });
-                    if (combo.cards.length === 3 && combo.type === "Coppia") combo.type = "Tris";
-                    if (combo.cards.length === 4 && combo.type === "Tris") combo.type = "Poker";
+
                     socket.emit('message', { title: "Carta Attaccata!", message: `Hai attaccato la carta con successo.` });
                     updateRoomState(roomCode);
                     return;
                 }
             }
         }
+
+        // Se il codice arriva qui, nessuna mossa valida è stata trovata
         socket.emit('message', { title: "Mossa non valida", message: "Le carte selezionate non possono essere calate o attaccate." });
     });
 
@@ -283,6 +347,13 @@ io.on('connection', (socket) => {
             if (!player.groups[0]) player.groups[0] = [];
             player.groups[0].unshift(jokerOnTable.id);
             combo.cards[jokerIndexOnTable] = cardInHand;
+
+            // ✅ NUOVA RIGA DA AGGIUNGERE
+            // Se la combinazione è una scala, ordinala dopo lo scambio.
+            if (combo.type === 'Scala') {
+                sortCards(combo.cards);
+            }
+
             player.hand.splice(handCardIndex, 1);
             player.groups.forEach(g => {
                 const i = g.indexOf(handCardId);
@@ -294,6 +365,8 @@ io.on('connection', (socket) => {
             socket.emit('message', { title: "Scambio non valido", message: "La carta non corrisponde al valore del Jolly." });
         }
     });
+
+    
 
     socket.on('disconnect', () => {
         const roomCode = findRoomBySocketId(socket.id);
@@ -378,6 +451,30 @@ function startGame(roomCode) {
     console.log(`Partita iniziata nella stanza ${roomCode}. Turno di ${room.players[state.currentPlayerId].name}`);
     updateRoomState(roomCode);
 }
+
+/**
+ * Ordina un array di carte in base al loro valore numerico.
+ * Gestisce anche gli Assi (A) come valore più basso.
+ * @param {Array} cards - L'array di carte da ordinare.
+ */
+function sortCards(cards) {
+    const valueOrder = ['A', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K'];
+    
+    // Funzione per ottenere il valore di una carta, anche se è un jolly assegnato
+    const getCardValue = (card) => {
+        if (card.isJoker && card.assignedValue) {
+            return card.assignedValue;
+        }
+        return card.value;
+    };
+
+    cards.sort((a, b) => {
+        const valueA = valueOrder.indexOf(getCardValue(a));
+        const valueB = valueOrder.indexOf(getCardValue(b));
+        return valueA - valueB;
+    });
+}
+
 
 function endTurn(roomCode, forceImmediateUpdate = false) {
     const room = rooms[roomCode];

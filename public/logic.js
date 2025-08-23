@@ -205,20 +205,41 @@ function isValidSet(nonJokers, jokers) {
     return suits.size === nonJokers.length;
 }
 
+// SOSTITUISCI la vecchia isValidRun con questa
 function isValidRun(nonJokers, jokers) {
     if (nonJokers.length + jokers < 3) return false;
     if (nonJokers.length === 0) return true;
+    
     const suit = nonJokers[0].suit;
     if (!nonJokers.every(c => c.suit === suit)) return false;
-    
-    const values = nonJokers.map(c => getCardNumericValue(c.value)).sort((a, b) => a - b);
-    if (new Set(values).size !== values.length) return false; // No duplicates
-    
-    let gaps = 0;
-    for (let i = 0; i < values.length - 1; i++) {
-        gaps += values[i+1] - values[i] - 1;
+
+    // Funzione di supporto per calcolare i gap
+    const calculateGaps = (values) => {
+        if (new Set(values).size !== values.length) return Infinity; // Ci sono duplicati, invalida
+        let gaps = 0;
+        for (let i = 0; i < values.length - 1; i++) {
+            const diff = values[i+1] - values[i] - 1;
+            if (diff < 0) return Infinity; // Ordine non valido o duplicati, invalida
+            gaps += diff;
+        }
+        return gaps;
+    };
+
+    // --- Tentativo 1: Asso Basso (valore 1) ---
+    const lowAceValues = nonJokers.map(c => getCardNumericValue(c.value, false)).sort((a, b) => a - b);
+    if (calculateGaps(lowAceValues) <= jokers) {
+        return true;
     }
-    return gaps <= jokers;
+
+    // --- Tentativo 2: Asso Alto (valore 14), solo se c'è un asso ---
+    if (nonJokers.some(c => c.value === 'A')) {
+        const highAceValues = nonJokers.map(c => getCardNumericValue(c.value, true)).sort((a, b) => a - b);
+        if (calculateGaps(highAceValues) <= jokers) {
+            return true;
+        }
+    }
+
+    return false; // Se nessuno dei due tentativi ha funzionato
 }
 
 function validateChiusura(cards) {
@@ -245,8 +266,8 @@ function canPartitionIntoValidGames(cards) {
     return true; // Placeholder for a very complex algorithm
 }
 
-function getCardNumericValue(value) {
-    if (value === 'A') return 1;
+function getCardNumericValue(value, aceIsHigh = false) {
+    if (value === 'A') return aceIsHigh ? 14 : 1;
     if (value === 'J') return 11;
     if (value === 'Q') return 12;
     if (value === 'K') return 13;
