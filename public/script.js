@@ -175,13 +175,24 @@ function updateUI() {
     updateTableCombinations();
     updateButtons();
 }
+// In script.js
+
+// Usa di nuovo QUESTA versione semplice della funzione
 function updatePlayerHand() {
     const container = document.getElementById('player-hand-container');
     container.innerHTML = '';
     const myPlayerData = gameState.players[myPlayerId];
+    
     if (!myPlayerData || !myPlayerData.groups) return;
+
+    // Se non ci sono gruppi, creane uno di default per contenere le carte
+    if (myPlayerData.groups.length === 0 && gameState.playerHand.length > 0) {
+        const cardIds = gameState.playerHand.map(c => c.id);
+        myPlayerData.groups = [cardIds];
+    }
+
     myPlayerData.groups.forEach(groupOfIds => {
-        const groupEl = createNewGroup(false);
+        const groupEl = createNewGroup(false); // Passa 'false' per non aggiungerlo al DOM
         groupOfIds.forEach(cardId => {
             const cardData = gameState.playerHand.find(c => c.id === cardId);
             if (cardData) {
@@ -191,14 +202,6 @@ function updatePlayerHand() {
         });
         container.appendChild(groupEl);
     });
-    if (container.children.length === 0 && (gameState.playerHand && gameState.playerHand.length > 0)) {
-        const firstGroup = createNewGroup();
-        gameState.playerHand.forEach(cardData => {
-            firstGroup.appendChild(createCardElement(cardData));
-        });
-    } else if (container.children.length === 0) {
-        createNewGroup();
-    }
 }
 function updateDiscardPile() {
     const discardContainer = document.getElementById('discard-pile');

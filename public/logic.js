@@ -206,40 +206,52 @@ function isValidSet(nonJokers, jokers) {
 }
 
 // SOSTITUISCI la vecchia isValidRun con questa
-function isValidRun(nonJokers, jokers) {
-    if (nonJokers.length + jokers < 3) return false;
-    if (nonJokers.length === 0) return true;
+function isValidRun(cards) {
+    // Le carte in input includono già i valori assegnati ai jolly (oggetti "virtuali")
+    if (cards.length < 3) return false;
+
+    const jokers = cards.filter(c => c.isJoker && !c.isVirtual).length;
+    const nonJokers = cards.filter(c => !c.isJoker || c.isVirtual);
     
+    if (nonJokers.length === 0) return true; // Se sono solo jolly, è valido
+
+    // 1. Controlla che tutte le carte non-jolly abbiano lo stesso seme
     const suit = nonJokers[0].suit;
     if (!nonJokers.every(c => c.suit === suit)) return false;
 
-    // Funzione di supporto per calcolare i gap
-    const calculateGaps = (values) => {
-        if (new Set(values).size !== values.length) return Infinity; // Ci sono duplicati, invalida
-        let gaps = 0;
-        for (let i = 0; i < values.length - 1; i++) {
-            const diff = values[i+1] - values[i] - 1;
-            if (diff < 0) return Infinity; // Ordine non valido o duplicati, invalida
-            gaps += diff;
-        }
-        return gaps;
-    };
+    // --- ✅ INIZIO DELLA CORREZIONE IMPORTANTE ---
 
-    // --- Tentativo 1: Asso Basso (valore 1) ---
-    const lowAceValues = nonJokers.map(c => getCardNumericValue(c.value, false)).sort((a, b) => a - b);
-    if (calculateGaps(lowAceValues) <= jokers) {
-        return true;
+    // 2. Controlla la presenza di duplicati nei valori delle carte
+    const values = nonJokers.map(c => c.value);
+    if (new Set(values).size !== values.length) {
+        // Se ci sono duplicati (es. due '8 di picche'), la scala non è valida.
+        return false;
     }
 
-    // --- Tentativo 2: Asso Alto (valore 14), solo se c'è un asso ---
-    if (nonJokers.some(c => c.value === 'A')) {
+    // --- ✅ FINE DELLA CORREZIONE IMPORTANTE ---
+
+    // 3. Calcola i "buchi" nella sequenza (la logica esistente va bene qui)
+    const numericValues = nonJokers.map(c => getCardNumericValue(c.value)).sort((a, b) => a - b);
+    
+    let gaps = 0;
+    for (let i = 0; i < numericValues.length - 1; i++) {
+        gaps += (numericValues[i + 1] - numericValues[i]) - 1;
+    }
+
+    // Prova con Asso basso (A-2-3...)
+    if (gaps <= jokers) return true;
+
+    // Se fallisce, e c'è un Asso, prova con Asso alto (...Q-K-A)
+    if (values.includes('A')) {
         const highAceValues = nonJokers.map(c => getCardNumericValue(c.value, true)).sort((a, b) => a - b);
-        if (calculateGaps(highAceValues) <= jokers) {
-            return true;
+        let highAceGaps = 0;
+        for (let i = 0; i < highAceValues.length - 1; i++) {
+            highAceGaps += (highAceValues[i + 1] - highAceValues[i]) - 1;
         }
+        if (highAceGaps <= jokers) return true;
     }
-
-    return false; // Se nessuno dei due tentativi ha funzionato
+    
+    return false;
 }
 
 function validateChiusura(cards) {
