@@ -329,6 +329,42 @@ body {
 .connection-status.disconnected { background: #dc3545; }
 
 
+.manche-list {
+    list-style-type: none;
+    padding: 0;
+    border: 1px solid rgba(255,255,255,0.2);
+    border-radius: 8px;
+    background: rgba(0,0,0,0.1);
+}
+
+.manche-list li {
+    padding: 12px 15px;
+    border-bottom: 1px solid rgba(255,255,255,0.1);
+    cursor: grab;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.manche-list li:last-child {
+    border-bottom: none;
+}
+
+.manche-list li:active {
+    cursor: grabbing;
+}
+
+.manche-list .drag-handle {
+    font-size: 1.2em;
+    opacity: 0.6;
+}
+
+.manche-list .sortable-ghost {
+    background: rgba(255, 215, 0, 0.2);
+    opacity: 0.7;
+}
+
+
 /* ========================================================== */
 /* ===== LAYOUT RESPONSIVE OTTIMIZZATO ===== */
 /* ========================================================== */

@@ -48,7 +48,7 @@ io.on('connection', (socket) => {
                 [socket.id]: { id: socket.id, name: playerName, hand: [], score: 0, dressed: false, groups: [] }
             },
             gameState: {
-                roomCode: roomCode, players: {}, currentPlayerId: null, currentManche: 1, deck: [], discardPile: [], tableCombinations: [], gamePhase: 'waiting', turnPhase: 'draw', hasDrawn: false,
+                roomCode: roomCode, players: {}, currentPlayerId: null, currentManche: 1, deck: [], discardPile: [], tableCombinations: [], gamePhase: 'waiting', turnPhase: 'draw', hasDrawn: false, mancheOrder: []
             }
         };
         
@@ -69,12 +69,14 @@ io.on('connection', (socket) => {
         updateRoomState(roomCode);
     });
 
-    socket.on('startGameRequest', () => {
+    socket.on('startGameRequest', (customMancheOrder) => {
         const roomCode = findRoomBySocketId(socket.id);
         const room = rooms[roomCode];
-        
         if (room && room.hostId === socket.id) {
             if (Object.keys(room.players).length >= 2) {
+                if (customMancheOrder && customMancheOrder.length === gameLogic.manches.length) {
+                    room.gameState.mancheOrder = customMancheOrder;
+                }
                 startGame(roomCode);
             } else {
                 socket.emit('message', {title: "Attendi", message: "Servono almeno 2 giocatori per iniziare."});
@@ -112,7 +114,6 @@ io.on('connection', (socket) => {
         if (state.currentPlayerId !== socket.id || state.turnPhase !== 'draw' || state.hasDrawn) return;
         if (state.deck.length === 0) {
             if (state.discardPile.length <= 1) return socket.emit('message', {title: "Mazzo vuoto", message: "Il mazzo e lo scarto sono finiti!"});
-            // Rimescola lo scarto nel mazzo
             const topDiscard = state.discardPile.pop();
             state.deck = gameLogic.shuffleDeck(state.discardPile);
             state.discardPile = [topDiscard];
@@ -161,6 +162,8 @@ io.on('connection', (socket) => {
         
         if (state.currentPlayerId !== socket.id || !state.hasDrawn) return;
         if (cardIndex < 0 || cardIndex >= player.hand.length) return;
+        
+        // La regola che bloccava lo scarto dei 5 e 10 è stata rimossa come richiesto.
         
         const discardedCard = player.hand.splice(cardIndex, 1)[0];
         player.groups.forEach(group => {
@@ -213,7 +216,10 @@ io.on('connection', (socket) => {
             }
         });
 
-        const manche = gameLogic.manches[state.currentManche - 1];
+        const currentMancheRequirement = state.mancheOrder[state.currentManche - 1];
+        const manche = gameLogic.manches.find(m => m.requirement === currentMancheRequirement);
+        if (!manche) return;
+
         if (gameLogic.validateCombination(virtualCards, manche.requirement)) {
             const selectedCardIds = originalSelectedCards.map(c => c.id);
             player.hand = player.hand.filter(c => !selectedCardIds.includes(c.id));
@@ -222,7 +228,7 @@ io.on('connection', (socket) => {
             });
             state.tableCombinations.push({ player: player.name, type: manche.name, cards: originalSelectedCards });
             player.dressed = true;
-            state.turnPhase = 'discard'; // Can be 'play' or 'discard', depends on rules
+            state.turnPhase = 'play';
             socket.emit('message', {title: "Ben fatto!", message: `Hai calato: ${manche.name}`});
             updateRoomState(roomCode);
         } else {
@@ -268,7 +274,6 @@ io.on('connection', (socket) => {
         
         let moveMade = false;
 
-        // Logica per calare una nuova combinazione (>= 3 carte)
         if (selectedIndexes.length >= 3) {
             let combinationType = null;
             if (gameLogic.isValidSet(virtualCards)) {
@@ -289,10 +294,8 @@ io.on('connection', (socket) => {
             }
         }
         
-        // Logica per attaccare una o più carte a combinazioni esistenti
         if (!moveMade) {
              for (const combo of state.tableCombinations) {
-                const combinedCards = [...combo.cards, ...originalSelectedCards];
                 const combinedVirtualCards = [...combo.cards, ...virtualCards];
                 
                 if (gameLogic.isValidSet(combinedVirtualCards) || gameLogic.isValidRun(combinedVirtualCards)) {
@@ -302,7 +305,7 @@ io.on('connection', (socket) => {
                     
                     combo.cards.push(...originalSelectedCards);
                     if (gameLogic.isValidRun(combinedVirtualCards)) {
-                        combo.type = 'Scala'; // Potrebbe diventare una scala
+                        combo.type = 'Scala';
                         sortCards(combo.cards);
                     }
                     socket.emit('message', { title: "Carte Attaccate!", message: `Hai attaccato con successo.` });
@@ -338,11 +341,9 @@ io.on('connection', (socket) => {
             const jokerIndexOnTable = combo.cards.findIndex(c => c.id === tableJokerId);
             const handCardIndex = player.hand.findIndex(c => c.id === handCardId);
 
-            // Scambia le carte
             combo.cards[jokerIndexOnTable] = cardInHand;
-            player.hand[handCardIndex] = { ...jokerOnTable, assignedValue: undefined, assignedSuit: undefined }; // Pulisce il jolly
+            player.hand[handCardIndex] = { ...jokerOnTable, assignedValue: undefined, assignedSuit: undefined };
 
-            // Aggiorna i gruppi
             player.groups.forEach(g => {
                 const i = g.indexOf(handCardId);
                 if (i > -1) g[i] = jokerOnTable.id;
@@ -356,8 +357,6 @@ io.on('connection', (socket) => {
             socket.emit('message', { title: "Scambio non valido", message: "La carta non corrisponde al valore del Jolly." });
         }
     });
-
-    // --- GESTIONE CONNESSIONE ---
 
     socket.on('disconnect', () => {
         console.log(`Un utente si è disconnesso: ${socket.id}`);
@@ -377,10 +376,10 @@ io.on('connection', (socket) => {
             } else if (remainingPlayers.length === 0) {
                  delete rooms[roomCode];
             } else {
-                if (room.hostId === socket.id) { // Se l'host si disconnette, ne viene eletto uno nuovo
+                if (room.hostId === socket.id) {
                     room.hostId = remainingPlayers[0];
                 }
-                if (wasCurrentPlayer) { // Se era il turno del giocatore disconnesso, passa al prossimo
+                if (wasCurrentPlayer) {
                     endTurn(roomCode, true);
                 } else {
                     io.to(roomCode).emit('message', { title: "Giocatore Disconnesso", message: `${disconnectedPlayerName} ha lasciato la stanza.`});
@@ -399,16 +398,22 @@ function updateRoomState(roomCode) {
     const room = rooms[roomCode];
     if (!room) return;
 
-    // Crea uno stato pubblico senza mazzo e mani private
+    let currentMancheData = null;
+    if (room.gameState.gamePhase === 'playing' && room.gameState.mancheOrder && room.gameState.mancheOrder.length > 0) {
+        const currentMancheRequirement = room.gameState.mancheOrder[room.gameState.currentManche - 1];
+        currentMancheData = gameLogic.manches.find(m => m.requirement === currentMancheRequirement);
+    }
+
     const publicGameState = { 
         ...room.gameState, 
         players: {}, 
         deckCount: room.gameState.deck ? room.gameState.deck.length : 0, 
-        hostId: room.hostId 
+        hostId: room.hostId,
+        mancheOrder: room.gameState.mancheOrder,
+        currentMancheData: currentMancheData 
     };
     delete publicGameState.deck;
 
-    // Popola lo stato pubblico con i dati visibili dei giocatori
     for (const playerId in room.players) {
         publicGameState.players[playerId] = {
             id: playerId, 
@@ -419,12 +424,10 @@ function updateRoomState(roomCode) {
         };
     }
 
-    // Invia a ogni giocatore il suo stato privato con la sua mano
     for (const playerId in room.players) {
         const privateState = { 
             ...publicGameState, 
             playerHand: room.players[playerId].hand,
-            // Invia i gruppi solo al giocatore proprietario per evitare cheating
             players: {
                 ...publicGameState.players,
                 [playerId]: {
@@ -443,21 +446,22 @@ function startGame(roomCode) {
     const state = room.gameState;
     const playerIds = Object.keys(room.players);
 
-    // Reset stato manche
     state.gamePhase = 'playing';
     state.turnPhase = 'draw';
     state.hasDrawn = false;
     state.deck = gameLogic.createDeck();
     state.tableCombinations = [];
 
-    // Reset stato giocatori
+    if (!state.mancheOrder || state.mancheOrder.length === 0) {
+        state.mancheOrder = gameLogic.manches.map(m => m.requirement);
+    }
+
     playerIds.forEach(pid => {
         room.players[pid].hand = [];
         room.players[pid].dressed = false;
         room.players[pid].groups = [];
     });
 
-    // Distribuisci carte
     const cardsToDeal = playerIds.length > 2 ? 11 : 13;
     for(let i = 0; i < cardsToDeal; i++) {
         playerIds.forEach(pid => {
@@ -466,8 +470,7 @@ function startGame(roomCode) {
             }
         });
     }
-
-    // Inizializza i gruppi
+    
     playerIds.forEach(pid => {
         const player = room.players[pid];
         player.groups = [player.hand.map(card => card.id)];
@@ -509,7 +512,7 @@ function endTurn(roomCode, forceImmediateUpdate = false) {
     if (forceImmediateUpdate) {
         updateRoomState(roomCode);
     } else {
-        setTimeout(() => updateRoomState(roomCode), 200); // Leggero ritardo per fluidità
+        setTimeout(() => { if (rooms[roomCode]) updateRoomState(roomCode) }, 200);
     }
 }
 
@@ -534,13 +537,13 @@ function endManche(roomCode) {
         message: `Punteggi della manche:\n${finalScores.join('\n')}`
     });
 
-    if (state.currentManche >= gameLogic.manches.length) {
+    if (state.currentManche >= state.mancheOrder.length) {
         endGame(roomCode);
     } else {
         state.currentManche++;
         setTimeout(() => {
             if(rooms[roomCode]) startGame(roomCode);
-        }, 8000); // Aumentato il ritardo per dare tempo di leggere i punteggi
+        }, 8000);
     }
 }
 
@@ -557,7 +560,6 @@ function endGame(roomCode) {
         message: `Il vincitore è ${winner.name}!\n\nClassifica finale:\n${ranking}`
     });
     
-    // Distruggi la stanza dopo un po' di tempo
     setTimeout(() => {
         delete rooms[roomCode];
     }, 20000);

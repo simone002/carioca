@@ -57,7 +57,20 @@ setInterval(() => {
 // ==========================================================
 function createRoom() { const playerName = document.getElementById('player-name').value.trim(); if (!playerName) return showMessage('Errore', 'Inserisci il tuo nome per continuare'); socket.emit('createRoom', playerName); }
 function joinRoom() { const playerName = document.getElementById('player-name').value.trim(); const roomCode = document.getElementById('room-code').value.trim(); if (!playerName || !roomCode) return showMessage('Errore', 'Inserisci nome e codice stanza'); socket.emit('joinRoom', { roomCode, playerName }); }
-function requestStartGame() { socket.emit('startGameRequest'); }
+// Modifica la funzione 'requestStartGame'
+function requestStartGame() {
+    const mancheList = document.getElementById('manche-order-list');
+    const customMancheOrder = [];
+    
+    // Leggi il nuovo ordine dalla lista nel DOM
+    mancheList.querySelectorAll('li').forEach(li => {
+        customMancheOrder.push(li.dataset.requirement);
+    });
+
+    // Invia l'ordine personalizzato al server
+    socket.emit('startGameRequest', customMancheOrder);
+}
+
 function drawFromDeck() { socket.emit('drawFromDeck'); }
 function drawFromDiscard() { socket.emit('drawFromDiscard'); }
 function dressHand() { handleActionWithJokers(getSelectedCardIndexes(), 'dressHand'); }
@@ -142,6 +155,8 @@ function selectCard(cardElement) {
     updateButtons();
 }
 function getSelectedCardIndexes() { return Array.from(selectedCardIndexes); }
+// In script.js
+
 function updateUI() {
     if (!gameState || !gameState.players) return;
     const playersContainer = document.getElementById('players-container');
@@ -158,13 +173,19 @@ function updateUI() {
         playerEl.className = 'player';
         playerEl.classList.toggle('current', player.id === gameState.currentPlayerId);
         playerEl.classList.toggle('dressed', player.dressed);
-        playerEl.innerHTML = `<div class="player-name">${player.id === myPlayerId ? `${player.name} (Tu)` : player.name}</div><div class="player-score">Punti: ${player.score}</div><div class.player-cards">Carte: ${player.cardCount}</div>`;
+        playerEl.innerHTML = `<div class="player-name">${player.id === myPlayerId ? `${player.name} (Tu)` : player.name}</div><div class="player-score">Punti: ${player.score}</div><div class="player-cards">Carte: ${player.cardCount}</div>`;
         playersContainer.appendChild(playerEl);
     });
 
-    const manche = manches[gameState.currentManche - 1];
-    document.getElementById('manche-title').textContent = `Manche ${gameState.currentManche}: ${manche.name}`;
-    document.getElementById('manche-desc').textContent = manche.desc;
+    // Usa i dati della manche inviati dal server
+    const manche = gameState.currentMancheData;
+    
+    // Controlla se i dati della manche esistono prima di provare a usarli
+    if (manche) {
+        document.getElementById('manche-title').textContent = `Manche ${gameState.currentManche}: ${manche.name}`;
+        document.getElementById('manche-desc').textContent = manche.desc;
+    }
+    
     document.getElementById('game-round').textContent = gameState.currentManche;
     const currentPlayer = gameState.players[gameState.currentPlayerId];
     document.getElementById('current-turn').textContent = currentPlayer ? currentPlayer.name : 'In attesa...';
@@ -316,13 +337,42 @@ function showWaitingScreen(roomCode) {
 function updateWaitingRoom() {
     const playersListEl = document.getElementById('waiting-players');
     const startGameBtn = document.getElementById('start-game-btn');
+    const mancheConfigContainer = document.getElementById('manche-config-container');
+    const mancheList = document.getElementById('manche-order-list');
+
     if (!gameState.players) return;
     const playerNames = Object.values(gameState.players).map(p => p.name);
     playersListEl.innerHTML = `Giocatori: ${playerNames.join(', ')}`;
-    console.log(`Sono l'host? Confronto: myPlayerId (${myPlayerId}) === gameState.hostId (${gameState.hostId})`);
-    if (myPlayerId === gameState.hostId && playerNames.length >= 2) {
-        startGameBtn.style.display = 'block';
+    
+    // ✅ Logica per mostrare e gestire la lista per l'host
+    if (myPlayerId === gameState.hostId) {
+        mancheConfigContainer.style.display = 'block';
+
+        // Popola la lista solo se è la prima volta
+        if (mancheList.children.length === 0) {
+            const defaultOrder = manches.map(m => m.requirement);
+            defaultOrder.forEach(req => {
+                const mancheInfo = manches.find(m => m.requirement === req);
+                const li = document.createElement('li');
+                li.dataset.requirement = mancheInfo.requirement; // Salva l'ID della manche
+                li.innerHTML = `<span class="drag-handle">☰</span> ${mancheInfo.name}`;
+                mancheList.appendChild(li);
+            });
+            
+            // Attiva SortableJS sulla lista
+            new Sortable(mancheList, {
+                animation: 150,
+                ghostClass: 'sortable-ghost'
+            });
+        }
+
+        if (playerNames.length >= 2) {
+            startGameBtn.style.display = 'block';
+        } else {
+            startGameBtn.style.display = 'none';
+        }
     } else {
+        mancheConfigContainer.style.display = 'none';
         startGameBtn.style.display = 'none';
     }
 }
