@@ -6,6 +6,7 @@ let jokerAssignments = [];
 let isSwappingJoker = false;
 let previousPlayerId = null;
 
+let myUniquePlayerId = localStorage.getItem('cariocaUniquePlayerId');
 const socket = io();
 let gameState = {};
 let myPlayerId = null;
@@ -14,9 +15,30 @@ let selectedCardIndexes = new Set();
 // ==========================================================
 // # SOCKET EVENT HANDLERS
 // ==========================================================
-socket.on('connect', () => { updateConnectionStatus('connected'); myPlayerId = socket.id; });
+socket.on('connect', () => {
+    updateConnectionStatus('connected');
+    myPlayerId = socket.id;
+
+    if (myUniquePlayerId) {
+        console.log("Tentativo di riconnessione con ID:", myUniquePlayerId);
+        socket.emit('reconnectPlayer', { uniquePlayerId: myUniquePlayerId });
+    }
+});
+
+
 socket.on('disconnect', () => { updateConnectionStatus('disconnected'); });
-socket.on('roomCreated', ({ roomCode, playerId }) => { myPlayerId = playerId; showWaitingScreen(roomCode); });
+
+
+// Sostituisci il tuo 'socket.on('roomCreated', ...)' con questo
+socket.on('roomCreated', ({ roomCode, playerId, uniquePlayerId }) => {
+    myPlayerId = playerId;
+    if (uniquePlayerId) {
+        myUniquePlayerId = uniquePlayerId;
+        localStorage.setItem('cariocaUniquePlayerId', myUniquePlayerId);
+    }
+    showWaitingScreen(roomCode);
+});
+
 
 socket.on('gameStateUpdate', (serverState) => {
     if (previousPlayerId !== myPlayerId && serverState.currentPlayerId === myPlayerId && serverState.gamePhase === 'playing') {
@@ -25,6 +47,14 @@ socket.on('gameStateUpdate', (serverState) => {
     previousPlayerId = serverState.currentPlayerId; 
 
     gameState = serverState;
+
+    // Salva l'ID unico se non lo abbiamo ancora
+    const myPlayerData = gameState.players[myPlayerId];
+    if (myPlayerData && myPlayerData.uniquePlayerId && !myUniquePlayerId) {
+        myUniquePlayerId = myPlayerData.uniquePlayerId;
+        localStorage.setItem('cariocaUniquePlayerId', myUniquePlayerId);
+    }
+    
     console.log("Nuovo stato ricevuto:", gameState);
     if (gameState.currentPlayerId !== myPlayerId) selectedCardIndexes.clear();
     if (gameState.gamePhase === 'waiting') {
@@ -81,8 +111,20 @@ setInterval(() => {
 // ==========================================================
 // # GAME ACTIONS
 // ==========================================================
-function createRoom() { const playerName = document.getElementById('player-name').value.trim(); if (!playerName) return showMessage('Errore', 'Inserisci il tuo nome per continuare'); socket.emit('createRoom', playerName); }
-function joinRoom() { const playerName = document.getElementById('player-name').value.trim(); const roomCode = document.getElementById('room-code').value.trim(); if (!playerName || !roomCode) return showMessage('Errore', 'Inserisci nome e codice stanza'); socket.emit('joinRoom', { roomCode, playerName }); }
+function createRoom() {
+    const playerName = document.getElementById('player-name').value.trim();
+    if (!playerName) return showMessage('Errore', 'Inserisci il tuo nome per continuare');
+    socket.emit('createRoom', { playerName, uniquePlayerId: myUniquePlayerId });
+}
+
+// Modifica la funzione 'joinRoom'
+function joinRoom() {
+    const playerName = document.getElementById('player-name').value.trim();
+    const roomCode = document.getElementById('room-code').value.trim();
+    if (!playerName || !roomCode) return showMessage('Errore', 'Inserisci nome e codice stanza');
+    socket.emit('joinRoom', { roomCode, playerName, uniquePlayerId: myUniquePlayerId });
+}
+
 // Modifica la funzione 'requestStartGame'
 function requestStartGame() {
     const mancheList = document.getElementById('manche-order-list');
