@@ -8,7 +8,15 @@ const gameLogic = require('./public/logic.js');
 
 const app = express();
 const server = http.createServer(app);
-const io = new Server(server, { pingInterval: 5000, pingTimeout: 10000 });
+// ✅ CON QUESTA NUOVA VERSIONE
+const io = new Server(server, {
+    pingInterval: 5000,
+    pingTimeout: 10000,
+    cors: {
+        origin: "https://carioca-02wq.onrender.com", // Autorizza esplicitamente il tuo sito
+        methods: ["GET", "POST"]
+    }
+});
 
 const PORT = process.env.PORT || 3000;
 const MAX_PLAYERS = 4;
