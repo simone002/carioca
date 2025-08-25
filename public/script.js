@@ -54,7 +54,7 @@ socket.on('gameStateUpdate', (serverState) => {
         myUniquePlayerId = myPlayerData.uniquePlayerId;
         localStorage.setItem('cariocaUniquePlayerId', myUniquePlayerId);
     }
-    
+
     console.log("Nuovo stato ricevuto:", gameState);
     if (gameState.currentPlayerId !== myPlayerId) selectedCardIndexes.clear();
     if (gameState.gamePhase === 'waiting') {
@@ -467,6 +467,18 @@ function showGameScreen() {
     document.getElementById('setup-screen').style.display = 'none';
     document.getElementById('waiting-screen').style.display = 'none';
     document.getElementById('game-screen').style.display = 'block';
+}
+function startNewGame() {
+    // Chiediamo conferma per evitare di abbandonare una partita per sbaglio
+    const confirmExit = confirm("Sei sicuro di voler abbandonare la partita attuale e tornare al menu principale?");
+
+    if (confirmExit) {
+        // 1. Diciamo al browser di "dimenticare" chi eri, cancellando l'ID salvato.
+        localStorage.removeItem('cariocaUniquePlayerId');
+        
+        // 2. Ricarichiamo la pagina.
+        location.reload();
+    }
 }
 function showMessage(title, message) {
     const modal = document.getElementById('message-modal');
