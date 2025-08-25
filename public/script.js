@@ -7,7 +7,9 @@ let isSwappingJoker = false;
 let previousPlayerId = null;
 
 let myUniquePlayerId = localStorage.getItem('cariocaUniquePlayerId');
-const socket = io("https://carioca-02wq.onrender.com");
+const socket = io("https://carioca-02wq.onrender.com", {
+    transports: ["websocket", "polling"] // Permetti entrambi i metodi
+});
 
 let gameState = {};
 let myPlayerId = null;
