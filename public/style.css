@@ -365,6 +365,22 @@ body {
 }
 
 
+
+/* Stile specifico per i pulsanti nel modal di scelta manche */
+#choose-manche-options .btn {
+    background-color: #e9e9e9; /* Sfondo grigio chiaro, ben visibile sul bianco */
+    color: #333;             /* Testo scuro, per contrasto */
+    border: 1px solid #ccc;  /* Un bordo per definirli meglio */
+    margin: 5px;              /* Un po' di spazio tra i pulsanti */
+}
+
+/* Effetto al passaggio del mouse */
+#choose-manche-options .btn:hover {
+    background-color: #dcdcdc;
+    color: #000;
+    transform: translateY(0); /* Annulla l'effetto di sollevamento se non desiderato */
+}
+
 /* ========================================================== */
 /* ===== LAYOUT RESPONSIVE OTTIMIZZATO ===== */
 /* ========================================================== */

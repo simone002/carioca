@@ -37,10 +37,36 @@ socket.on('gameStateUpdate', (serverState) => {
     }
 });
 
+
+
 socket.on('error', (message) => { showMessage('Errore', message); });
 socket.on('playerLeft', (message) => { showMessage('Partita terminata', message); setTimeout(() => location.reload(), 3000); });
 socket.on('message', ({ title, message }) => { showMessage(title, message.replace(/\n/g, '<br>')); });
+socket.on('promptChooseNextManche', ({ winnerId, winnerName, remainingManches }) => {
+    const modal = document.getElementById('choose-manche-modal');
+    const optionsContainer = document.getElementById('choose-manche-options');
+    optionsContainer.innerHTML = ''; // Pulisci le opzioni precedenti
 
+    if (myPlayerId === winnerId) {
+        // Sono il vincitore, mostro le opzioni
+        document.getElementById('choose-manche-title').textContent = "Congratulazioni!";
+        document.getElementById('choose-manche-message').textContent = "Come vincitore, scegli la prossima manche:";
+
+        remainingManches.forEach(manche => {
+            const button = document.createElement('button');
+            button.className = 'btn';
+            button.textContent = manche.name;
+            button.onclick = () => chooseManche(manche.requirement);
+            optionsContainer.appendChild(button);
+        });
+
+        modal.style.display = 'flex';
+
+    } else {
+        // Non sono il vincitore, mostro un messaggio di attesa
+        showMessage("Attendi...", `In attesa che ${winnerName} scelga la prossima manche.`);
+    }
+});
 // ==========================================================
 // # KEEP-ALIVE
 // ==========================================================
@@ -263,11 +289,16 @@ function updateTableCombinations() {
         tableEl.appendChild(comboEl);
     });
 }
+
+
+// In script.js, modifica la funzione updateButtons
+
 function updateButtons() {
     const isMyTurn = gameState.currentPlayerId === myPlayerId;
     const hasSelected = selectedCardIndexes.size > 0;
     const myPlayerInfo = gameState.players ? gameState.players[myPlayerId] : null;
     if (!myPlayerInfo) return;
+    
     const canDraw = isMyTurn && gameState.turnPhase === 'draw' && !gameState.hasDrawn;
     const canPlay = isMyTurn && gameState.turnPhase !== 'draw' && gameState.hasDrawn;
     const canDiscard = isMyTurn && gameState.hasDrawn && selectedCardIndexes.size === 1;
@@ -277,6 +308,7 @@ function updateButtons() {
     document.getElementById('attach-btn').disabled = !(canPlay && hasSelected && myPlayerInfo.dressed);
     document.getElementById('discard-btn').disabled = !canDiscard;
 }
+
 function createNewGroup(addToDom = true) {
     const container = document.getElementById('player-hand-container');
     const newGroup = document.createElement('div');
@@ -293,6 +325,19 @@ function createNewGroup(addToDom = true) {
     });
     return newGroup;
 }
+
+function chooseManche(mancheRequirement) {
+    // Invia la scelta al server
+    socket.emit('chooseNextManche', { choice: mancheRequirement });
+    
+    // Chiudi entrambi i modal
+    document.getElementById('choose-manche-modal').style.display = 'none';
+    closeModal();
+}
+
+
+
+
 function createCardElement(cardData) {
     const cardEl = document.createElement('div');
     cardEl.className = `card ${cardData.isJoker ? 'joker' : (cardData.isRed ? 'red' : 'black')}`;

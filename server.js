@@ -1,48 +1,65 @@
 const express = require('express');
+require('dotenv').config(); // ✅ AGGIUNGI QUESTA RIGA QUI
 const http = require('http');
 const { Server } = require("socket.io");
 const path = require('path');
+const { createClient } = require('redis');
 const gameLogic = require('./public/logic.js');
 
 const app = express();
 const server = http.createServer(app);
-const io = new Server(server);
+const io = new Server(server, {
+    pingInterval: 5000,
+    pingTimeout: 10000,
+});
 
 const PORT = process.env.PORT || 3000;
 const MAX_PLAYERS = 4;
 
-// Serve i file statici dalla cartella 'public'
+// --- Connessione a Redis ---
+const redisClient = createClient({
+    url: process.env.REDIS_URL // Legge l'URL dalle variabili d'ambiente di Render
+});
+redisClient.on('error', (err) => console.log('Redis Client Error', err));
+(async () => {
+    await redisClient.connect();
+    console.log('Connesso a Redis con successo!');
+})();
+// -------------------------
+
 app.use(express.static(path.join(__dirname, 'public')));
 
-// Oggetto per memorizzare lo stato di tutte le stanze
-let rooms = {};
-
-/**
- * Trova il codice di una stanza dato l'ID di un socket.
- * @param {string} socketId - L'ID del socket del giocatore.
- * @returns {string|null} Il codice della stanza o null se non trovata.
- */
-function findRoomBySocketId(socketId) {
-    for (const roomCode in rooms) {
-        if (rooms[roomCode].players[socketId]) {
-            return roomCode;
+async function findRoomBySocketId(socketId) {
+    const allRoomCodes = await redisClient.keys('*');
+    for (const roomCode of allRoomCodes) {
+        try {
+            const roomDataString = await redisClient.get(roomCode);
+            if (roomDataString) {
+                const room = JSON.parse(roomDataString);
+                if (room.players && room.players[socketId]) {
+                    return { roomCode, room };
+                }
+            }
+        } catch (e) {
+            console.error(`Errore nel parsing dei dati per la stanza ${roomCode}:`, e);
         }
     }
-    return null;
+    return { roomCode: null, room: null };
 }
 
 io.on('connection', (socket) => {
     console.log(`Un utente si è connesso: ${socket.id}`);
 
-    // --- GESTIONE STANZE ---
-
-    socket.on('createRoom', (playerName) => {
+    socket.on('createRoom', async (playerName) => {
         let roomCode = Math.random().toString(36).substring(2, 8).toUpperCase();
-        while(rooms[roomCode]){ roomCode = Math.random().toString(36).substring(2, 8).toUpperCase(); }
+        while(await redisClient.exists(roomCode)){ 
+            roomCode = Math.random().toString(36).substring(2, 8).toUpperCase(); 
+        }
         
         socket.join(roomCode);
+        socket.roomCode = roomCode;
         
-        rooms[roomCode] = {
+        const room = {
             hostId: socket.id,
             players: {
                 [socket.id]: { id: socket.id, name: playerName, hand: [], score: 0, dressed: false, groups: [] }
@@ -52,66 +69,121 @@ io.on('connection', (socket) => {
             }
         };
         
+        await redisClient.set(roomCode, JSON.stringify(room));
+        
         socket.emit('roomCreated', { roomCode, playerId: socket.id });
-        updateRoomState(roomCode);
+        updateRoomState(roomCode, room);
     });
 
-    socket.on('joinRoom', ({ roomCode, playerName }) => {
+    socket.on('joinRoom', async ({ roomCode, playerName }) => {
         roomCode = roomCode.toUpperCase();
-        const room = rooms[roomCode];
+        const roomDataString = await redisClient.get(roomCode);
+        if (!roomDataString) return socket.emit('error', 'Stanza non trovata.');
         
-        if (!room) return socket.emit('error', 'Stanza non trovata.');
+        const room = JSON.parse(roomDataString);
+        
         if (Object.keys(room.players).length >= MAX_PLAYERS) return socket.emit('error', 'La stanza è piena.');
         if (room.gameState.gamePhase === 'playing') return socket.emit('error', 'La partita è già iniziata.');
         
         socket.join(roomCode);
+        socket.roomCode = roomCode;
         room.players[socket.id] = { id: socket.id, name: playerName, hand: [], score: 0, dressed: false, groups: [] };
-        updateRoomState(roomCode);
-    });
-
-    socket.on('startGameRequest', (customMancheOrder) => {
-        const roomCode = findRoomBySocketId(socket.id);
-        const room = rooms[roomCode];
-        if (room && room.hostId === socket.id) {
-            if (Object.keys(room.players).length >= 2) {
-                if (customMancheOrder && customMancheOrder.length === gameLogic.manches.length) {
-                    room.gameState.mancheOrder = customMancheOrder;
-                }
-                startGame(roomCode);
-            } else {
-                socket.emit('message', {title: "Attendi", message: "Servono almeno 2 giocatori per iniziare."});
-            }
-        }
-    });
-
-    // --- AZIONI DI GIOCO ---
-
-    socket.on('updateGroups', (newGroups) => {
-        const roomCode = findRoomBySocketId(socket.id);
-        if (!roomCode) return;
-        const player = rooms[roomCode].players[socket.id];
-        if (player) {
-            player.groups = newGroups;
-        }
-    });
-
-    socket.on('addNewGroup', () => {
-        const roomCode = findRoomBySocketId(socket.id);
-        if (!roomCode) return;
-        const player = rooms[roomCode].players[socket.id];
-        if (player && player.groups) {
-            player.groups.push([]);
-            updateRoomState(roomCode);
-        }
-    });
-
-    socket.on('drawFromDeck', () => {
-        const roomCode = findRoomBySocketId(socket.id);
-        if (!roomCode) return;
-        const room = rooms[roomCode];
-        const state = room.gameState;
         
+        await redisClient.set(roomCode, JSON.stringify(room));
+        updateRoomState(roomCode, room);
+    });
+
+    socket.on('startGameRequest', async (customMancheOrder) => {
+        const roomCode = socket.roomCode;
+        if (!roomCode) return;
+        
+        const room = JSON.parse(await redisClient.get(roomCode));
+        if (!room) return;
+
+        if (room.hostId === socket.id && Object.keys(room.players).length >= 2) {
+            if (customMancheOrder && customMancheOrder.length === gameLogic.manches.length) {
+                room.gameState.mancheOrder = customMancheOrder;
+            } else {
+                room.gameState.mancheOrder = gameLogic.manches.map(m => m.requirement);
+            }
+            await redisClient.set(roomCode, JSON.stringify(room));
+            await startGame(roomCode);
+        }
+    });
+
+    socket.on('chooseNextManche', async ({ choice }) => {
+        const roomCode = socket.roomCode;
+        if (!roomCode) return;
+        const room = JSON.parse(await redisClient.get(roomCode));
+        if (!room) return;
+
+        const state = room.gameState;
+        const winnerId = room.gameState.currentPlayerId; // L'ultimo giocatore di turno era il vincitore
+
+        // Solo il vincitore può scegliere
+        if (socket.id !== winnerId || state.gamePhase !== 'choose_next_manche') return;
+
+        // Rimuovi la manche scelta dalle rimanenti e mettila come prossima nell'ordine
+        const playedManches = state.mancheOrder.slice(0, state.currentManche - 1);
+        const allMancheRequirements = gameLogic.manches.map(m => m.requirement);
+        let remainingManches = allMancheRequirements.filter(req => !playedManches.includes(req));
+
+        if (remainingManches.includes(choice)) {
+            // Rimuovi la scelta dalle rimanenti
+            remainingManches = remainingManches.filter(req => req !== choice);
+            // Ricostruisci l'ordine futuro
+            const futureOrder = [choice, ...remainingManches];
+            // Aggiorna l'ordine completo della partita
+            state.mancheOrder = [...playedManches, ...futureOrder];
+            
+            const chosenMancheData = gameLogic.manches.find(m => m.requirement === choice);
+            io.to(roomCode).emit('message', {
+                title: "Prossima Manche Scelta",
+                message: `${room.players[winnerId].name} ha scelto: ${chosenMancheData.name}`
+            });
+            
+            await redisClient.set(roomCode, JSON.stringify(room));
+            
+            // Avvia la nuova manche dopo un breve ritardo
+            setTimeout(() => {
+                startGame(roomCode);
+            }, 4000);
+        }
+    });
+    
+    socket.on('updateGroups', async (newGroups) => {
+        const roomCode = socket.roomCode;
+        if (!roomCode) return;
+        const roomDataString = await redisClient.get(roomCode);
+        if(!roomDataString) return;
+        const room = JSON.parse(roomDataString);
+
+        if (room && room.players[socket.id]) {
+            room.players[socket.id].groups = newGroups;
+            await redisClient.set(roomCode, JSON.stringify(room));
+        }
+    });
+    
+    socket.on('addNewGroup', async () => {
+        const roomCode = socket.roomCode;
+        if (!roomCode) return;
+        const room = JSON.parse(await redisClient.get(roomCode));
+        if (room && room.players[socket.id] && room.players[socket.id].groups) {
+            room.players[socket.id].groups.push([]);
+            await redisClient.set(roomCode, JSON.stringify(room));
+            updateRoomState(roomCode, room);
+        }
+    });
+
+    socket.on('drawFromDeck', async () => {
+        const roomCode = socket.roomCode;
+        if (!roomCode) return;
+        const room = JSON.parse(await redisClient.get(roomCode));
+        if (!room) return;
+
+        const state = room.gameState;
         if (state.currentPlayerId !== socket.id || state.turnPhase !== 'draw' || state.hasDrawn) return;
+        
         if (state.deck.length === 0) {
             if (state.discardPile.length <= 1) return socket.emit('message', {title: "Mazzo vuoto", message: "Il mazzo e lo scarto sono finiti!"});
             const topDiscard = state.discardPile.pop();
@@ -123,48 +195,71 @@ io.on('connection', (socket) => {
         const card = state.deck.pop();
         const player = room.players[socket.id];
         player.hand.push(card);
-        
         if (!player.groups || player.groups.length === 0) player.groups = [[]];
         player.groups[0].unshift(card.id);
         
         state.hasDrawn = true;
         state.turnPhase = 'play';
-        updateRoomState(roomCode);
-    });
-    
-    socket.on('drawFromDiscard', () => {
-        const roomCode = findRoomBySocketId(socket.id);
-        if (!roomCode) return;
-        const room = rooms[roomCode];
-        const state = room.gameState;
         
+        await redisClient.set(roomCode, JSON.stringify(room));
+        updateRoomState(roomCode, room);
+    });
+
+    socket.on('drawFromDiscard', async () => {
+        const roomCode = socket.roomCode;
+        if (!roomCode) return;
+        const room = JSON.parse(await redisClient.get(roomCode));
+        if (!room) return;
+
+        const state = room.gameState;
         if (state.currentPlayerId !== socket.id || state.turnPhase !== 'draw' || state.hasDrawn) return;
         if (state.discardPile.length === 0) return socket.emit('message', {title: "Scarto vuoto", message: "Non ci sono carte da pescare."});
         
         const card = state.discardPile.pop();
         const player = room.players[socket.id];
         player.hand.push(card);
-        
         if (!player.groups || player.groups.length === 0) player.groups = [[]];
         player.groups[0].unshift(card.id);
         
         state.hasDrawn = true;
         state.turnPhase = 'play';
-        updateRoomState(roomCode);
+        
+        await redisClient.set(roomCode, JSON.stringify(room));
+        updateRoomState(roomCode, room);
     });
 
-    socket.on('discardCard', (cardIndex) => {
-        const roomCode = findRoomBySocketId(socket.id);
+    // In server.js
+
+    socket.on('discardCard', async (cardIndex) => {
+        const roomCode = socket.roomCode;
         if (!roomCode) return;
-        const room = rooms[roomCode];
+        const room = JSON.parse(await redisClient.get(roomCode));
+        if (!room) return;
+
         const state = room.gameState;
         const player = room.players[socket.id];
         
-        if (state.currentPlayerId !== socket.id || !state.hasDrawn) return;
+        if (!player || state.currentPlayerId !== socket.id || !state.hasDrawn) return;
         if (cardIndex < 0 || cardIndex >= player.hand.length) return;
         
-        // La regola che bloccava lo scarto dei 5 e 10 è stata rimossa come richiesto.
-        
+        const cardToDiscard = player.hand[cardIndex];
+
+        // ✅ INIZIO NUOVA REGOLA CONDIZIONALE
+        // Controlla qual è la manche corrente
+        const currentMancheRequirement = state.mancheOrder[state.currentManche - 1];
+
+        // Se siamo nella manche 'scala' E il giocatore non ha ancora calato...
+        if (currentMancheRequirement === 'scala' && !player.dressed) {
+            // ...allora non può scartare un 5 o un 10.
+            if (cardToDiscard.value === '5' || cardToDiscard.value === '10') {
+                return socket.emit('message', {
+                    title: "Mossa non Permessa",
+                    message: "Nella manche Scala, non puoi scartare un 5 o un 10 finché non hai calato."
+                });
+            }
+        }
+        // ✅ FINE NUOVA REGOLA CONDIZIONALE
+
         const discardedCard = player.hand.splice(cardIndex, 1)[0];
         player.groups.forEach(group => {
             const indexInGroup = group.indexOf(discardedCard.id);
@@ -173,32 +268,42 @@ io.on('connection', (socket) => {
         
         state.discardPile.push(discardedCard);
         
+        await redisClient.set(roomCode, JSON.stringify(room));
+        
         if (player.hand.length === 0) {
-            endManche(roomCode);
+            await endManche(roomCode);
         } else {
-            endTurn(roomCode);
+            await endTurn(roomCode);
         }
     });
     
-    socket.on('dressHand', (data) => {
-        const { selectedIndexes, jokerAssignments = [] } = data;
-        const roomCode = findRoomBySocketId(socket.id);
+    socket.on('dressHand', async (data) => {
+        const roomCode = socket.roomCode;
         if (!roomCode) return;
-        const room = rooms[roomCode];
+        const room = JSON.parse(await redisClient.get(roomCode));
+        if (!room) return;
+
+        const { selectedIndexes, jokerAssignments = [] } = data;
         const state = room.gameState;
         const player = room.players[socket.id];
 
-        if (state.currentPlayerId !== socket.id || !state.hasDrawn || player.dressed) return;
-
+        if (!player || state.currentPlayerId !== socket.id || !state.hasDrawn || player.dressed) return;
         if (player.hand.length === selectedIndexes.length) {
-            return socket.emit('message', {
-                title: "Mossa non permessa",
-                message: "Non puoi calare tutte le carte. Devi conservarne almeno una per lo scarto finale."
-            });
+            return socket.emit('message', {title: "Mossa non permessa", message: "Non puoi calare tutte le carte."});
         }
-
+        
         const originalSelectedCards = selectedIndexes.map(i => player.hand[i]);
         if (originalSelectedCards.some(card => card === undefined)) return;
+
+        const hasJoker = originalSelectedCards.some(card => card.isJoker);
+        
+        // Blocca i jolly, MA SOLO SE la manche NON è 'chiusura in mano'
+        if (hasJoker && currentMancheRequirement !== 'chiusura in mano') {
+            return socket.emit('message', {
+                title: "Mossa non Permessa",
+                message: "Non puoi usare un Jolly per calare la combinazione principale della manche."
+            });
+        }
         
         let virtualCards = JSON.parse(JSON.stringify(originalSelectedCards));
         jokerAssignments.forEach(assignment => {
@@ -215,7 +320,7 @@ io.on('connection', (socket) => {
                 }
             }
         });
-
+        
         const currentMancheRequirement = state.mancheOrder[state.currentManche - 1];
         const manche = gameLogic.manches.find(m => m.requirement === currentMancheRequirement);
         if (!manche) return;
@@ -223,39 +328,38 @@ io.on('connection', (socket) => {
         if (gameLogic.validateCombination(virtualCards, manche.requirement)) {
             const selectedCardIds = originalSelectedCards.map(c => c.id);
             player.hand = player.hand.filter(c => !selectedCardIds.includes(c.id));
-            player.groups.forEach(group => {
-                group.splice(0, group.length, ...group.filter(id => !selectedCardIds.includes(id)));
-            });
+            player.groups.forEach(group => group.splice(0, group.length, ...group.filter(id => !selectedCardIds.includes(id))));
             state.tableCombinations.push({ player: player.name, type: manche.name, cards: originalSelectedCards });
             player.dressed = true;
             state.turnPhase = 'play';
+            
+            await redisClient.set(roomCode, JSON.stringify(room));
+            updateRoomState(roomCode, room);
             socket.emit('message', {title: "Ben fatto!", message: `Hai calato: ${manche.name}`});
-            updateRoomState(roomCode);
         } else {
             socket.emit('message', {title: "Combinazione non valida", message: `La regola della manche (${manche.name}) non è soddisfatta.`});
         }
     });
 
-    socket.on('attachCards', (data) => {
-        const { selectedIndexes, jokerAssignments = [] } = data;
-        const roomCode = findRoomBySocketId(socket.id);
+    socket.on('attachCards', async (data) => {
+        const roomCode = socket.roomCode;
         if (!roomCode) return;
-        const room = rooms[roomCode];
+        const room = JSON.parse(await redisClient.get(roomCode));
+        if (!room) return;
+    
+        const { selectedIndexes, jokerAssignments = [] } = data;
         const state = room.gameState;
         const player = room.players[socket.id];
-
-        if (state.currentPlayerId !== socket.id || !state.hasDrawn || !player.dressed) return;
+    
+        if (!player || state.currentPlayerId !== socket.id || !state.hasDrawn || !player.dressed) return;
         if (!selectedIndexes || selectedIndexes.length === 0) return;
         if (player.hand.length === selectedIndexes.length) {
-            return socket.emit('message', {
-                title: "Mossa non permessa",
-                message: "Non puoi calare tutte le carte. Devi conservarne almeno una per lo scarto finale."
-            });
+            return socket.emit('message', {title: "Mossa non permessa", message: "Non puoi calare tutte le carte."});
         }
-
+    
         const originalSelectedCards = selectedIndexes.map(i => player.hand[i]);
         if (originalSelectedCards.some(card => card === undefined)) return;
-
+    
         let virtualCards = JSON.parse(JSON.stringify(originalSelectedCards));
         jokerAssignments.forEach(assignment => {
             const jokerCardInHand = player.hand[assignment.index];
@@ -273,7 +377,7 @@ io.on('connection', (socket) => {
         });
         
         let moveMade = false;
-
+    
         if (selectedIndexes.length >= 3) {
             let combinationType = null;
             if (gameLogic.isValidSet(virtualCards)) {
@@ -281,7 +385,7 @@ io.on('connection', (socket) => {
             } else if (gameLogic.isValidRun(virtualCards)) {
                 combinationType = 'Scala';
             }
-
+    
             if (combinationType) {
                 const selectedCardIds = originalSelectedCards.map(c => c.id);
                 player.hand = player.hand.filter(c => !selectedCardIds.includes(c.id));
@@ -297,7 +401,6 @@ io.on('connection', (socket) => {
         if (!moveMade) {
              for (const combo of state.tableCombinations) {
                 const combinedVirtualCards = [...combo.cards, ...virtualCards];
-                
                 if (gameLogic.isValidSet(combinedVirtualCards) || gameLogic.isValidRun(combinedVirtualCards)) {
                     const selectedCardIds = originalSelectedCards.map(c => c.id);
                     player.hand = player.hand.filter(c => !selectedCardIds.includes(c.id));
@@ -314,90 +417,99 @@ io.on('connection', (socket) => {
                 }
             }
         }
-
+    
         if (moveMade) {
-            updateRoomState(roomCode);
+            await redisClient.set(roomCode, JSON.stringify(room));
+            updateRoomState(roomCode, room);
         } else {
-            socket.emit('message', { title: "Mossa non valida", message: "Le carte selezionate non formano una combinazione valida né possono essere attaccate." });
+            socket.emit('message', { title: "Mossa non valida", message: "Le carte non sono valide." });
         }
     });
-    
-    socket.on('swapJoker', ({ handCardId, tableJokerId, comboIndex }) => {
-        const roomCode = findRoomBySocketId(socket.id);
+
+    socket.on('swapJoker', async ({ handCardId, tableJokerId, comboIndex }) => {
+        const roomCode = socket.roomCode;
         if (!roomCode) return;
-        const room = rooms[roomCode];
+        const room = JSON.parse(await redisClient.get(roomCode));
+        if (!room) return;
+    
         const state = room.gameState;
         const player = room.players[socket.id];
         
-        if (state.currentPlayerId !== socket.id || !state.hasDrawn || !player.dressed) return;
+        if (!player || state.currentPlayerId !== socket.id || !state.hasDrawn || !player.dressed) return;
         
         const combo = state.tableCombinations[comboIndex];
         const jokerOnTable = combo ? combo.cards.find(c => c.id === tableJokerId) : null;
         const cardInHand = player.hand.find(c => c.id === handCardId);
         
         if (!jokerOnTable || !cardInHand || !jokerOnTable.assignedValue) return;
-
+    
         if (cardInHand.value === jokerOnTable.assignedValue && cardInHand.suit === jokerOnTable.assignedSuit) {
             const jokerIndexOnTable = combo.cards.findIndex(c => c.id === tableJokerId);
             const handCardIndex = player.hand.findIndex(c => c.id === handCardId);
-
+    
+            const cleanJoker = { ...jokerOnTable };
+            delete cleanJoker.assignedValue;
+            delete cleanJoker.assignedSuit;
+    
             combo.cards[jokerIndexOnTable] = cardInHand;
-            player.hand[handCardIndex] = { ...jokerOnTable, assignedValue: undefined, assignedSuit: undefined };
-
+            player.hand[handCardIndex] = cleanJoker;
+    
             player.groups.forEach(g => {
                 const i = g.indexOf(handCardId);
                 if (i > -1) g[i] = jokerOnTable.id;
             });
             
             if (combo.type === 'Scala') sortCards(combo.cards);
-
+            
+            await redisClient.set(roomCode, JSON.stringify(room));
+            updateRoomState(roomCode, room);
             socket.emit('message', { title: "Scambio Riuscito!", message: "Hai preso il Jolly!" });
-            updateRoomState(roomCode);
         } else {
-            socket.emit('message', { title: "Scambio non valido", message: "La carta non corrisponde al valore del Jolly." });
+            socket.emit('message', { title: "Scambio non valido", message: "La carta non corrisponde al Jolly." });
         }
     });
 
-    socket.on('disconnect', () => {
+    socket.on('disconnect', async () => {
         console.log(`Un utente si è disconnesso: ${socket.id}`);
-        const roomCode = findRoomBySocketId(socket.id);
-        if (roomCode && rooms[roomCode]) {
-            const room = rooms[roomCode];
-            const disconnectedPlayerName = room.players[socket.id]?.name || 'Un giocatore';
-            const wasCurrentPlayer = room.gameState.currentPlayerId === socket.id;
+        const { roomCode, room } = await findRoomBySocketId(socket.id);
 
+        if (roomCode && room) {
+            const wasCurrentPlayer = room.gameState.currentPlayerId === socket.id;
             delete room.players[socket.id];
             
             const remainingPlayers = Object.keys(room.players);
 
             if (remainingPlayers.length < 2 && room.gameState.gamePhase === 'playing') {
-                io.to(roomCode).emit('message', { title: "Partita Terminata", message: `${disconnectedPlayerName} si è disconnesso. La partita non può continuare.`});
-                delete rooms[roomCode];
+                io.to(roomCode).emit('message', { title: "Partita Terminata", message: `Un giocatore si è disconnesso.`});
+                await redisClient.del(roomCode);
             } else if (remainingPlayers.length === 0) {
-                 delete rooms[roomCode];
+                 await redisClient.del(roomCode);
             } else {
                 if (room.hostId === socket.id) {
                     room.hostId = remainingPlayers[0];
                 }
+                await redisClient.set(roomCode, JSON.stringify(room));
+                
                 if (wasCurrentPlayer) {
-                    endTurn(roomCode, true);
+                    await endTurn(roomCode, true);
                 } else {
-                    io.to(roomCode).emit('message', { title: "Giocatore Disconnesso", message: `${disconnectedPlayerName} ha lasciato la stanza.`});
-                    updateRoomState(roomCode);
+                    updateRoomState(roomCode, room);
                 }
             }
         }
     });
-
-    socket.on('keep-alive', () => {});
 });
 
-// --- FUNZIONI DI GESTIONE DEL GIOCO ---
-
-function updateRoomState(roomCode) {
-    const room = rooms[roomCode];
-    if (!room) return;
-
+async function updateRoomState(roomCode, roomObject = null) {
+    let room;
+    if (roomObject) {
+        room = roomObject;
+    } else {
+        const roomDataString = await redisClient.get(roomCode);
+        if (!roomDataString) return;
+        room = JSON.parse(roomDataString);
+    }
+    
     let currentMancheData = null;
     if (room.gameState.gamePhase === 'playing' && room.gameState.mancheOrder && room.gameState.mancheOrder.length > 0) {
         const currentMancheRequirement = room.gameState.mancheOrder[room.gameState.currentManche - 1];
@@ -405,44 +517,43 @@ function updateRoomState(roomCode) {
     }
 
     const publicGameState = { 
-        ...room.gameState, 
-        players: {}, 
+        ...room.gameState, players: {}, 
         deckCount: room.gameState.deck ? room.gameState.deck.length : 0, 
-        hostId: room.hostId,
-        mancheOrder: room.gameState.mancheOrder,
+        hostId: room.hostId, mancheOrder: room.gameState.mancheOrder,
         currentMancheData: currentMancheData 
     };
     delete publicGameState.deck;
 
     for (const playerId in room.players) {
         publicGameState.players[playerId] = {
-            id: playerId, 
-            name: room.players[playerId].name, 
+            id: playerId, name: room.players[playerId].name, 
             cardCount: room.players[playerId].hand.length, 
-            score: room.players[playerId].score, 
-            dressed: room.players[playerId].dressed,
+            score: room.players[playerId].score, dressed: room.players[playerId].dressed,
         };
     }
 
     for (const playerId in room.players) {
-        const privateState = { 
-            ...publicGameState, 
-            playerHand: room.players[playerId].hand,
-            players: {
-                ...publicGameState.players,
-                [playerId]: {
-                    ...publicGameState.players[playerId],
-                    groups: room.players[playerId].groups
+        const socket = io.sockets.sockets.get(playerId);
+        if (socket) {
+            const privateState = { 
+                ...publicGameState, playerHand: room.players[playerId].hand,
+                players: {
+                    ...publicGameState.players,
+                    [playerId]: {
+                        ...publicGameState.players[playerId],
+                        groups: room.players[playerId].groups
+                    }
                 }
-            }
-        };
-        io.to(playerId).emit('gameStateUpdate', privateState);
+            };
+            socket.emit('gameStateUpdate', privateState);
+        }
     }
 }
 
-function startGame(roomCode) {
-    const room = rooms[roomCode];
+async function startGame(roomCode) {
+    const room = JSON.parse(await redisClient.get(roomCode));
     if (!room) return;
+    
     const state = room.gameState;
     const playerIds = Object.keys(room.players);
 
@@ -451,11 +562,9 @@ function startGame(roomCode) {
     state.hasDrawn = false;
     state.deck = gameLogic.createDeck();
     state.tableCombinations = [];
-
     if (!state.mancheOrder || state.mancheOrder.length === 0) {
         state.mancheOrder = gameLogic.manches.map(m => m.requirement);
     }
-
     playerIds.forEach(pid => {
         room.players[pid].hand = [];
         room.players[pid].dressed = false;
@@ -465,62 +574,47 @@ function startGame(roomCode) {
     const cardsToDeal = playerIds.length > 2 ? 11 : 13;
     for(let i = 0; i < cardsToDeal; i++) {
         playerIds.forEach(pid => {
-            if (state.deck.length > 0) {
-                room.players[pid].hand.push(state.deck.pop());
-            }
+            if (state.deck.length > 0) room.players[pid].hand.push(state.deck.pop());
         });
     }
-    
     playerIds.forEach(pid => {
-        const player = room.players[pid];
-        player.groups = [player.hand.map(card => card.id)];
+        room.players[pid].groups = [room.players[pid].hand.map(card => card.id)];
     });
-    
     state.discardPile = [state.deck.pop()];
     state.currentPlayerId = playerIds[Math.floor(Math.random() * playerIds.length)];
     
-    console.log(`Partita iniziata nella stanza ${roomCode}. Turno di ${room.players[state.currentPlayerId].name}`);
-    updateRoomState(roomCode);
+    await redisClient.set(roomCode, JSON.stringify(room));
+    updateRoomState(roomCode, room);
 }
 
-function sortCards(cards) {
-    const valueOrder = ['A', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K'];
-    const getCardValue = (card) => (card.isJoker && card.assignedValue) ? card.assignedValue : card.value;
-    cards.sort((a, b) => valueOrder.indexOf(getCardValue(a)) - valueOrder.indexOf(getCardValue(b)));
-}
+async function endTurn(roomCode, forceImmediateUpdate = false) {
+    const room = JSON.parse(await redisClient.get(roomCode));
+    if (!room) return;
 
-function endTurn(roomCode, forceImmediateUpdate = false) {
-    const room = rooms[roomCode];
-    if (!room || !room.gameState.currentPlayerId) return;
     const state = room.gameState;
     const playerIds = Object.keys(room.players);
     if (playerIds.length === 0) return;
 
     const currentPlayerIndex = playerIds.indexOf(state.currentPlayerId);
-    
-    if (currentPlayerIndex === -1) {
-        state.currentPlayerId = playerIds[0];
-    } else {
-        const nextPlayerIndex = (currentPlayerIndex + 1) % playerIds.length;
-        state.currentPlayerId = playerIds[nextPlayerIndex];
-    }
-    
+    state.currentPlayerId = playerIds[(currentPlayerIndex + 1) % playerIds.length];
     state.hasDrawn = false;
     state.turnPhase = 'draw';
-
-    console.log(`Turno terminato. Ora è il turno di ${room.players[state.currentPlayerId]?.name || 'sconosciuto'}`);
+    
+    await redisClient.set(roomCode, JSON.stringify(room));
     if (forceImmediateUpdate) {
-        updateRoomState(roomCode);
+        updateRoomState(roomCode, room);
     } else {
-        setTimeout(() => { if (rooms[roomCode]) updateRoomState(roomCode) }, 200);
+        setTimeout(() => updateRoomState(roomCode, room), 200);
     }
 }
 
-function endManche(roomCode) {
-    const room = rooms[roomCode];
+async function endManche(roomCode) {
+    const room = JSON.parse(await redisClient.get(roomCode));
     if (!room) return;
+    
     const state = room.gameState;
     const winnerId = state.currentPlayerId;
+    const winner = room.players[winnerId];
     
     let finalScores = [];
     Object.values(room.players).forEach(player => {
@@ -533,22 +627,36 @@ function endManche(roomCode) {
     });
 
     io.to(roomCode).emit('message', {
-        title: `Manche ${state.currentManche} Vinta da ${room.players[winnerId].name}!`,
+        title: `Manche ${state.currentManche} Vinta da ${winner.name}!`,
         message: `Punteggi della manche:\n${finalScores.join('\n')}`
     });
 
-    if (state.currentManche >= state.mancheOrder.length) {
-        endGame(roomCode);
+    state.currentManche++;
+
+    if (state.currentManche > state.mancheOrder.length) {
+        await redisClient.set(roomCode, JSON.stringify(room));
+        await endGame(roomCode);
     } else {
-        state.currentManche++;
-        setTimeout(() => {
-            if(rooms[roomCode]) startGame(roomCode);
-        }, 8000);
+        // Invece di avviare subito la partita, entriamo in una nuova fase
+        state.gamePhase = 'choose_next_manche';
+        await redisClient.set(roomCode, JSON.stringify(room));
+        
+        // Calcola le manche non ancora giocate
+        const playedManches = state.mancheOrder.slice(0, state.currentManche - 1);
+        const allMancheRequirements = gameLogic.manches.map(m => m.requirement);
+        const remainingManches = allMancheRequirements.filter(req => !playedManches.includes(req));
+
+        // Invia un evento a tutti i giocatori
+        io.to(roomCode).emit('promptChooseNextManche', {
+            winnerId: winnerId,
+            winnerName: winner.name,
+            remainingManches: remainingManches.map(req => gameLogic.manches.find(m => m.requirement === req))
+        });
     }
 }
 
-function endGame(roomCode) {
-    const room = rooms[roomCode];
+async function endGame(roomCode) {
+    const room = JSON.parse(await redisClient.get(roomCode));
     if (!room) return;
     
     const allPlayers = Object.values(room.players).sort((a, b) => a.score - b.score);
@@ -560,9 +668,7 @@ function endGame(roomCode) {
         message: `Il vincitore è ${winner.name}!\n\nClassifica finale:\n${ranking}`
     });
     
-    setTimeout(() => {
-        delete rooms[roomCode];
-    }, 20000);
+    await redisClient.del(roomCode);
 }
 
 server.listen(PORT, () => {
