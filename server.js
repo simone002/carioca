@@ -366,22 +366,6 @@ io.on('connection', (socket) => {
         updateRoomState(roomCode, room);
     });
 
-    socket.on('debugLeaveOneCard', async () => {
-        const roomCode = socket.roomCode;
-        if (!roomCode) return;
-        const room = JSON.parse(await redisClient.get(`room:${roomCode}`));
-        if (!room) return;
-        const player = room.players[socket.id];
-        if (!player) return;
-
-        if (player.hand.length > 1) {
-            player.hand.splice(1);
-            player.groups = player.hand.length > 0 ? [[player.hand[0].id]] : [];
-            console.log(`DEBUG: La mano di ${player.name} è stata ridotta a 1 carta.`);
-            await redisClient.set(`room:${roomCode}`, JSON.stringify(room));
-            updateRoomState(roomCode, room);
-        }
-    });
 
     socket.on('disconnect', async () => {
         const { roomCode, room } = await findRoomBySocketId(socket.id);
