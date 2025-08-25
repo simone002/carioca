@@ -207,7 +207,8 @@ io.on('connection', (socket) => {
         if (!player.groups || player.groups.length === 0) player.groups = [[]];
         player.groups[0].unshift(card.id);
         state.hasDrawn = true;
-        
+        state.turnPhase = 'play'; // ✅ RIGA MANCANTE DA AGGIUNGERE
+
         await redisClient.set(`room:${roomCode}`, JSON.stringify(room));
         updateRoomState(roomCode, room);
     });
@@ -228,6 +229,7 @@ io.on('connection', (socket) => {
         if (!player.groups || player.groups.length === 0) player.groups = [[]];
         player.groups[0].unshift(card.id);
         state.hasDrawn = true;
+        state.turnPhase = 'play'; // ✅ RIGA MANCANTE DA AGGIUNGERE
         
         await redisClient.set(`room:${roomCode}`, JSON.stringify(room));
         updateRoomState(roomCode, room);
