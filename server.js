@@ -293,7 +293,7 @@ io.on('connection', (socket) => {
         let virtualCards = JSON.parse(JSON.stringify(originalSelectedCards));
         jokerAssignments.forEach(assignment => {
             const jokerInHand = player.hand[assignment.index];
-            if(jokerInHand && jokerInHand.isJoker){
+            if (jokerInHand && jokerInHand.isJoker) {
                 const virtualCardIndex = virtualCards.findIndex(c => c.id === jokerInHand.id);
                 if(virtualCardIndex !== -1){
                     virtualCards[virtualCardIndex] = { ...assignment.becomes, isVirtual: true, points: gameLogic.getCardPoints(assignment.becomes.value) };
@@ -340,11 +340,61 @@ io.on('connection', (socket) => {
         if (originalSelectedCards.some(card => card === undefined)) return;
     
         let virtualCards = JSON.parse(JSON.stringify(originalSelectedCards));
-        // Logica per assegnare valori ai jolly...
+        jokerAssignments.forEach(assignment => {
+            const jokerInHand = player.hand[assignment.index];
+            if(jokerInHand && jokerInHand.isJoker){
+                const virtualCardIndex = virtualCards.findIndex(c => c.id === jokerInHand.id);
+                if(virtualCardIndex !== -1){
+                    virtualCards[virtualCardIndex] = { ...assignment.becomes, isVirtual: true, points: gameLogic.getCardPoints(assignment.becomes.value) };
+                    const originalCard = originalSelectedCards.find(c => c.id === jokerInHand.id);
+                    if(originalCard){
+                        originalCard.assignedValue = assignment.becomes.value;
+                        originalCard.assignedSuit = assignment.becomes.suit;
+                    }
+                }
+            }
+        });
         
         let moveMade = false;
     
-        // Logica per calare o attaccare...
+        if (selectedIndexes.length >= 3) {
+            let combinationType = null;
+            if (gameLogic.isValidSet(virtualCards)) {
+                combinationType = virtualCards.length === 3 ? 'Tris' : (virtualCards.length === 4 ? 'Poker' : 'Set');
+            } else if (gameLogic.isValidRun(virtualCards)) {
+                combinationType = 'Scala';
+            }
+    
+            if (combinationType) {
+                const selectedCardIds = originalSelectedCards.map(c => c.id);
+                player.hand = player.hand.filter(c => !selectedCardIds.includes(c.id));
+                player.groups.forEach(g => g.splice(0, g.length, ...g.filter(id => !selectedCardIds.includes(id))));
+                const newCombination = { player: player.name, type: combinationType, cards: originalSelectedCards };
+                if (combinationType === 'Scala') sortCards(newCombination.cards);
+                state.tableCombinations.push(newCombination);
+                socket.emit('message', { title: "Combinazione Calata!", message: `Hai formato: ${combinationType}.` });
+                moveMade = true;
+            }
+        }
+        
+        if (!moveMade) {
+             for (const combo of state.tableCombinations) {
+                const combinedVirtualCards = [...combo.cards, ...virtualCards];
+                if (gameLogic.isValidSet(combinedVirtualCards) || gameLogic.isValidRun(combinedVirtualCards)) {
+                    const selectedCardIds = originalSelectedCards.map(c => c.id);
+                    player.hand = player.hand.filter(c => !selectedCardIds.includes(c.id));
+                    player.groups.forEach(g => g.splice(0, g.length, ...g.filter(id => !selectedCardIds.includes(id))));
+                    combo.cards.push(...originalSelectedCards);
+                    if (gameLogic.isValidRun(combinedVirtualCards)) {
+                        combo.type = 'Scala';
+                        sortCards(combo.cards);
+                    }
+                    socket.emit('message', { title: "Carte Attaccate!", message: `Hai attaccato con successo.` });
+                    moveMade = true;
+                    break; 
+                }
+            }
+        }
     
         if (moveMade) {
             await redisClient.set(`room:${roomCode}`, JSON.stringify(room));
@@ -360,18 +410,51 @@ io.on('connection', (socket) => {
         const room = JSON.parse(await redisClient.get(`room:${roomCode}`));
         if (!room) return;
     
-        // Logica completa per lo scambio jolly...
+        const state = room.gameState;
+        const player = room.players[socket.id];
+        
+        if (!player || state.currentPlayerId !== socket.id || !state.hasDrawn || !player.dressed) return;
+        
+        const combo = state.tableCombinations[comboIndex];
+        const jokerOnTable = combo ? combo.cards.find(c => c.id === tableJokerId) : null;
+        const cardInHand = player.hand.find(c => c.id === handCardId);
+        
+        if (!jokerOnTable || !cardInHand || !jokerOnTable.assignedValue) return;
     
-        await redisClient.set(`room:${roomCode}`, JSON.stringify(room));
-        updateRoomState(roomCode, room);
+        if (cardInHand.value === jokerOnTable.assignedValue && cardInHand.suit === jokerOnTable.assignedSuit) {
+            const jokerIndexOnTable = combo.cards.findIndex(c => c.id === tableJokerId);
+            const handCardIndex = player.hand.findIndex(c => c.id === handCardId);
+    
+            const cleanJoker = { ...jokerOnTable };
+            delete cleanJoker.assignedValue;
+            delete cleanJoker.assignedSuit;
+    
+            combo.cards[jokerIndexOnTable] = cardInHand;
+            player.hand[handCardIndex] = cleanJoker;
+    
+            player.groups.forEach(g => {
+                const i = g.indexOf(handCardId);
+                if (i > -1) g[i] = jokerOnTable.id;
+            });
+            
+            if (combo.type === 'Scala') sortCards(combo.cards);
+            
+            await redisClient.set(`room:${roomCode}`, JSON.stringify(room));
+            updateRoomState(roomCode, room);
+            socket.emit('message', { title: "Scambio Riuscito!", message: "Hai preso il Jolly!" });
+        } else {
+            socket.emit('message', { title: "Scambio non valido", message: "La carta non corrisponde al Jolly." });
+        }
     });
+
 
 
     socket.on('disconnect', async () => {
         const { roomCode, room } = await findRoomBySocketId(socket.id);
         if (roomCode && room) {
-            console.log(`Giocatore ${room.players[socket.id]?.name} disconnesso da ${roomCode}`);
-            // Non cancelliamo subito i dati del giocatore, la riconnessione li recupererà
+            console.log(`Giocatore ${room.players[socket.id]?.name || socket.id} disconnesso da ${roomCode}`);
+            // La logica di riconnessione gestirà il rientro. 
+            // Potremmo aggiungere un timer per rimuovere definitivamente i giocatori inattivi, ma per ora lo lasciamo così.
         }
     });
 });
@@ -462,10 +545,13 @@ async function endTurn(roomCode, forceImmediateUpdate = false) {
 
     const state = room.gameState;
     const playerIds = Object.keys(room.players);
-    if (playerIds.length === 0) return;
+    if (playerIds.length === 0) { // Se non ci sono più giocatori, cancella la stanza
+        await redisClient.del(`room:${roomCode}`);
+        return;
+    }
 
     const currentPlayerIndex = playerIds.indexOf(state.currentPlayerId);
-    state.currentPlayerId = playerIds[(currentPlayerIndex + 1) % playerIds.length];
+    state.currentPlayerId = playerIds[(currentPlayerIndex + 1) % playerIds.length] || playerIds[0];
     state.hasDrawn = false;
     
     await redisClient.set(`room:${roomCode}`, JSON.stringify(room));
@@ -499,7 +585,7 @@ async function endManche(roomCode) {
     state.currentManche++;
     
     if (state.currentManche > state.mancheOrder.length) {
-        await redisClient.set(`room:${roomCode}`, JSON.stringify(room));
+        await redisClient.set(`room:${roomCode}`, JSON.stringify(room)); // Salva i punteggi finali prima di terminare
         await endGame(roomCode);
     } else {
         state.gamePhase = 'choose_next_manche';
