@@ -186,14 +186,66 @@ function validateFull(cards) {
 }
 
 function validateScala40(cards) {
-    // This is a complex rule that usually involves one or more melds (sets or runs) totaling 40+ points.
-    // The provided function is a good start. For simplicity, we can assume it checks if the selected cards form a valid meld and sum to 40+.
-    if (cards.length < 3) return false;
-    const jokers = cards.filter(c => c.isJoker).length;
-    const nonJokers = cards.filter(c => !c.isJoker);
-    const totalPoints = nonJokers.reduce((sum, c) => sum + c.points, 0);
+    // Gestisce sia carte reali che "virtuali" assegnate ai jolly
+    const allCards = cards.map(c => c.isJoker ? { ...c, assignedValue: c.assignedValue, assignedSuit: c.assignedSuit } : c);
+
+    const totalPoints = allCards.reduce((sum, card) => sum + card.points, 0);
     if (totalPoints < 40) return false;
-    return isValidSet(nonJokers, jokers) || isValidRun(nonJokers, jokers);
+
+    // Ora controlliamo se le carte possono essere suddivise in giochi validi
+    return canPartitionIntoMelds(allCards);
+}
+
+function canPartitionIntoMelds(cards) {
+    // Caso base: se non ci sono più carte, abbiamo trovato una soluzione.
+    if (cards.length === 0) return true;
+
+    const n = cards.length;
+    // La combinazione più piccola è di 3 carte.
+    if (n < 3) return false;
+
+    // Funzione per generare tutte le possibili combinazioni di carte
+    const getCombinations = (arr, size) => {
+        const result = [];
+        const f = (prefix, arr) => {
+            if (prefix.length === size) {
+                result.push(prefix);
+                return;
+            }
+            for (let i = 0; i < arr.length; i++) {
+                f(prefix.concat(arr[i]), arr.slice(i + 1));
+            }
+        };
+        f([], arr);
+        return result;
+    };
+    
+    // Prova a formare un gioco valido con 3, 4 o 5 carte
+    for (const size of [3, 4, 5]) {
+        if (n >= size) {
+            const combinations = getCombinations(cards, size);
+            for (const potentialMeld of combinations) {
+                
+                const jokers = potentialMeld.filter(c => c.isJoker).length;
+                const nonJokers = potentialMeld.filter(c => !c.isJoker);
+                
+                // Se la combinazione trovata è un gioco valido...
+                if (isValidSet(nonJokers, jokers) || isValidRun(nonJokers, jokers)) {
+                    
+                    // ...crea un nuovo set di carte rimanenti...
+                    const remainingCards = cards.filter(card => !potentialMeld.includes(card));
+                    
+                    // ...e prova ricorsivamente a partizionare le carte rimanenti.
+                    if (canPartitionIntoMelds(remainingCards)) {
+                        return true; // Se la ricorsione ha successo, abbiamo finito.
+                    }
+                }
+            }
+        }
+    }
+
+    // Se abbiamo provato tutte le combinazioni e non abbiamo trovato una soluzione, fallisci.
+    return false;
 }
 
 function isValidSet(nonJokers, jokers) {
