@@ -1,10 +1,10 @@
 // Manche definitions
 const manches = [
-    { name: "Coppia", desc: "Devi calare una coppia (2 carte uguali)", requirement: "coppia" },
-    { name: "Doppia Coppia", desc: "Devi calare due coppie diverse", requirement: "doppiacoppia" },
+    { name: "Coppia", desc: "Devi calare una coppia (2 carte uguali) Vestite", requirement: "coppia" },
+    { name: "Doppia Coppia", desc: "Devi calare due coppie diverse, una vestita e una non vestita", requirement: "doppiacoppia" },
     { name: "Tris", desc: "Devi calare un tris (3 carte uguali)", requirement: "tris" },
     { name: "Scala", desc: "Devi calare una scala di 5 carte consecutive", requirement: "scala" },
-    { name: "Poker", desc: "Devi calare stesso numero di diversi semi", requirement: "poker" },
+    { name: "Poker", desc: "Devi calare stessa carta dei 4 semi", requirement: "poker" },
     { name: "Full", desc: "Devi calare un full (tris + coppia)", requirement: "full" },
     { name: "Scala 40", desc: "Devi calare 40 con un minimo di 3 carte per gioco", requirement: "scala40" },
     { name: "Chiusura in mano", desc: "Devi calare tutte le regole con rimanente alla fine 1 carta da scartare", requirement: "chiusura in mano" }
