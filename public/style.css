@@ -412,6 +412,15 @@ body {
     display: none;
 }
 
+/* In style.css (aggiungi alla fine) */
+
+/* Rende flessibile il contenitore dei pulsanti nel modal del primo turno */
+#first-turn-modal .controls {
+    display: flex;
+    justify-content: center;
+    gap: 15px; /* Aggiunge un po' di spazio tra i pulsanti */
+}
+
 /* ========================================================== */
 /* ===== LAYOUT RESPONSIVE OTTIMIZZATO ===== */
 /* ========================================================== */

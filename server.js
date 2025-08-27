@@ -199,11 +199,12 @@ io.on('connection', (socket) => {
         if (!roomCode) return;
         const room = JSON.parse(await redisClient.get(`room:${roomCode}`));
         if (!room) return;
+
         const state = room.gameState;
         const player = room.players[socket.id];
-
         if (!player || state.currentPlayerId !== socket.id || state.hasDrawn) return;
 
+        // Gestione mazzo vuoto
         if (state.deck.length === 0) {
             if (state.discardPile.length <= 1) return socket.emit('message', { title: "Mazzo vuoto", message: "Non ci sono più carte." });
             const topDiscard = state.discardPile.pop();
@@ -212,6 +213,7 @@ io.on('connection', (socket) => {
             io.to(roomCode).emit('message', { title: "Mazzo Terminato", message: "Il pozzo degli scarti è stato rimescolato." });
         }
 
+        // Logica corretta con if/else
         if (state.isFirstTurnOfGame) {
             const card = state.deck.pop();
             state.turnPhase = 'first_turn_decision';
