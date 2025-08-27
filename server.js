@@ -192,19 +192,16 @@ io.on('connection', (socket) => {
         }
     });
 
-    // In server.js
-
     socket.on('drawFromDeck', async () => {
         const roomCode = socket.roomCode;
         if (!roomCode) return;
         const room = JSON.parse(await redisClient.get(`room:${roomCode}`));
         if (!room) return;
-
         const state = room.gameState;
         const player = room.players[socket.id];
-        if (!player || state.currentPlayerId !== socket.id || state.hasDrawn) return;
 
-        // Gestione mazzo vuoto
+        if (!player || state.currentPlayerId !== socket.id || state.hasDrawn) return;
+        
         if (state.deck.length === 0) {
             if (state.discardPile.length <= 1) return socket.emit('message', { title: "Mazzo vuoto", message: "Non ci sono più carte." });
             const topDiscard = state.discardPile.pop();
@@ -213,20 +210,13 @@ io.on('connection', (socket) => {
             io.to(roomCode).emit('message', { title: "Mazzo Terminato", message: "Il pozzo degli scarti è stato rimescolato." });
         }
 
-        // Logica corretta con if/else
-        if (state.isFirstTurnOfGame) {
-            const card = state.deck.pop();
-            state.turnPhase = 'first_turn_decision';
-            state.temporaryCard = card;
-        } else {
-            const card = state.deck.pop();
-            player.hand.push(card);
-            if (!player.groups || player.groups.length === 0) player.groups = [[]];
-            player.groups[0].unshift(card.id);
-            state.hasDrawn = true;
-            state.turnPhase = 'play';
-        }
-        
+        const card = state.deck.pop();
+        player.hand.push(card);
+        if (!player.groups || player.groups.length === 0) player.groups = [[]];
+        player.groups[0].unshift(card.id);
+        state.hasDrawn = true;
+        state.turnPhase = 'play'; // ✅ RIGA MANCANTE DA AGGIUNGERE
+
         await redisClient.set(`room:${roomCode}`, JSON.stringify(room));
         updateRoomState(roomCode, room);
     });
@@ -240,11 +230,6 @@ io.on('connection', (socket) => {
         const player = room.players[socket.id];
 
         if (!player || state.currentPlayerId !== socket.id || state.hasDrawn) return;
-
-        if (state.isFirstTurnOfGame) {
-            return socket.emit('message', { title: "Mossa non Permessa", message: "Come primo giocatore, devi pescare dal mazzo." });
-        }
-
         if (state.discardPile.length === 0) return socket.emit('message', {title: "Scarto vuoto", message: "Non ci sono carte da pescare."});
         
         const card = state.discardPile.pop();
@@ -254,37 +239,6 @@ io.on('connection', (socket) => {
         state.hasDrawn = true;
         state.turnPhase = 'play'; // ✅ RIGA MANCANTE DA AGGIUNGERE
         
-        await redisClient.set(`room:${roomCode}`, JSON.stringify(room));
-        updateRoomState(roomCode, room);
-    });
-
-    // In server.js, dentro io.on('connection', ...)
-    socket.on('handleFirstTurnDecision', async ({ choice }) => {
-        const roomCode = socket.roomCode;
-        if (!roomCode) return;
-        const room = JSON.parse(await redisClient.get(`room:${roomCode}`));
-        if (!room) return;
-        const state = room.gameState;
-        const player = room.players[socket.id];
-
-        if (!player || state.currentPlayerId !== socket.id || state.turnPhase !== 'first_turn_decision' || !state.temporaryCard) return;
-
-        if (choice === 'keep') {
-            player.hand.push(state.temporaryCard);
-            player.groups[0].unshift(state.temporaryCard.id);
-        } else if (choice === 'discard') {
-            state.discardPile.push(state.temporaryCard); // La prima carta viene scartata
-            if (state.deck.length > 0) {
-                const newCard = state.deck.pop(); // Pesca la seconda
-                player.hand.push(newCard);
-                player.groups[0].unshift(newCard.id);
-            }
-        }
-
-        state.hasDrawn = true;
-        state.turnPhase = 'play';
-        delete state.temporaryCard; // Rimuovi la carta temporanea
-
         await redisClient.set(`room:${roomCode}`, JSON.stringify(room));
         updateRoomState(roomCode, room);
     });
@@ -315,11 +269,7 @@ io.on('connection', (socket) => {
             if (indexInGroup > -1) group.splice(indexInGroup, 1);
         });
         state.discardPile.push(discardedCard);
-
-        if (state.isFirstTurnOfGame) {
-            state.isFirstTurnOfGame = false;
-        }
-
+        
         await redisClient.set(`room:${roomCode}`, JSON.stringify(room));
         
         if (player.hand.length === 0) {
@@ -572,8 +522,8 @@ async function startGame(roomCode) {
     if (!room) return;
     
     const state = room.gameState;
-    state.isFirstTurnOfGame = state.currentManche === 1;
     const playerIds = Object.keys(room.players);
+
     state.gamePhase = 'playing';
     state.hasDrawn = false;
     state.deck = gameLogic.createDeck();

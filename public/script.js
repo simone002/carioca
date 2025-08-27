@@ -266,19 +266,6 @@ function updateUI() {
     updatePlayerHand();
     updateTableCombinations();
     updateButtons();
-
-    // Gestione del modal per il primo turno
-    const firstTurnModal = document.getElementById('first-turn-modal');
-    if (gameState.turnPhase === 'first_turn_decision' && gameState.currentPlayerId === myPlayerId) {
-        const cardDisplay = document.getElementById('first-turn-card-display');
-        const cardData = gameState.temporaryCard;
-        const cardEl = createCardElement(cardData);
-        cardDisplay.innerHTML = '';
-        cardDisplay.appendChild(cardEl);
-        firstTurnModal.style.display = 'flex';
-    } else {
-        if(firstTurnModal) firstTurnModal.style.display = 'none';
-    }
 }
 // In script.js
 
@@ -393,11 +380,6 @@ function chooseManche(mancheRequirement) {
     closeModal();
 }
 
-// In script.js
-function handleFirstTurnChoice(choice) {
-    socket.emit('handleFirstTurnChoice', { choice });
-    document.getElementById('first-turn-modal').style.display = 'none';
-}
 
 
 
