@@ -257,50 +257,59 @@ function isValidSet(nonJokers, jokers) {
     return suits.size === nonJokers.length;
 }
 
-// SOSTITUISCI la vecchia isValidRun con questa
-function isValidRun(cards) {
-    // Le carte in input includono già i valori assegnati ai jolly (oggetti "virtuali")
-    if (cards.length < 3) return false;
 
+function isValidRun(cards) {
     const jokers = cards.filter(c => c.isJoker && !c.isVirtual).length;
     const nonJokers = cards.filter(c => !c.isJoker || c.isVirtual);
     
-    if (nonJokers.length === 0) return true; // Se sono solo jolly, è valido
+    if (nonJokers.length + jokers < 3) return false;
+    if (nonJokers.length === 0) return true;
 
-    // 1. Controlla che tutte le carte non-jolly abbiano lo stesso seme
     const suit = nonJokers[0].suit;
     if (!nonJokers.every(c => c.suit === suit)) return false;
 
-    // --- ✅ INIZIO DELLA CORREZIONE IMPORTANTE ---
-
-    // 2. Controlla la presenza di duplicati nei valori delle carte
     const values = nonJokers.map(c => c.value);
-    if (new Set(values).size !== values.length) {
-        // Se ci sono duplicati (es. due '8 di picche'), la scala non è valida.
-        return false;
-    }
+    if (new Set(values).size !== values.length) return false;
 
-    // --- ✅ FINE DELLA CORREZIONE IMPORTANTE ---
-
-    // 3. Calcola i "buchi" nella sequenza (la logica esistente va bene qui)
-    const numericValues = nonJokers.map(c => getCardNumericValue(c.value)).sort((a, b) => a - b);
-    
-    let gaps = 0;
-    for (let i = 0; i < numericValues.length - 1; i++) {
-        gaps += (numericValues[i + 1] - numericValues[i]) - 1;
-    }
-
-    // Prova con Asso basso (A-2-3...)
-    if (gaps <= jokers) return true;
-
-    // Se fallisce, e c'è un Asso, prova con Asso alto (...Q-K-A)
-    if (values.includes('A')) {
-        const highAceValues = nonJokers.map(c => getCardNumericValue(c.value, true)).sort((a, b) => a - b);
-        let highAceGaps = 0;
-        for (let i = 0; i < highAceValues.length - 1; i++) {
-            highAceGaps += (highAceValues[i + 1] - highAceValues[i]) - 1;
+    // --- TENTATIVO 1: Asso come carta bassa (valore 1) ---
+    const lowAceNumericValues = nonJokers.map(c => getCardNumericValue(c.value, false)).sort((a, b) => a - b);
+    let lowAceGaps = 0;
+    for (let i = 0; i < lowAceNumericValues.length - 1; i++) {
+        const diff = lowAceNumericValues[i+1] - lowAceNumericValues[i] - 1;
+        if (diff < 0) { // Duplicato o ordine errato, dovrebbe essere già gestito, ma per sicurezza
+            lowAceGaps = Infinity;
+            break;
         }
-        if (highAceGaps <= jokers) return true;
+        lowAceGaps += diff;
+    }
+
+    if (lowAceGaps <= jokers) {
+        return true;
+    }
+
+    // --- TENTATIVO 2: Asso come carta alta (valore 14) ---
+    if (values.includes('A')) {
+        // ✅ CONTROLLO AGGIUNTIVO FONDAMENTALE ✅
+        // Una scala con l'Asso alto non può contenere carte più basse del 10.
+        const hasLowCards = values.some(v => v !== 'A' && parseInt(v) < 10);
+        if (hasLowCards) {
+            return false; // Se ci sono carte basse (2-9), non può essere una scala con Asso alto.
+        }
+
+        const highAceNumericValues = nonJokers.map(c => getCardNumericValue(c.value, true)).sort((a, b) => a - b);
+        let highAceGaps = 0;
+        for (let i = 0; i < highAceNumericValues.length - 1; i++) {
+            const diff = highAceNumericValues[i+1] - highAceNumericValues[i] - 1;
+             if (diff < 0) {
+                highAceGaps = Infinity;
+                break;
+            }
+            highAceGaps += diff;
+        }
+        
+        if (highAceGaps <= jokers) {
+            return true;
+        }
     }
     
     return false;
