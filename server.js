@@ -91,6 +91,34 @@ io.on('connection', (socket) => {
         updateRoomState(roomCode, room);
     });
 
+    socket.on('bookDiscard', async () => {
+        const roomCode = socket.roomCode;
+        if (!roomCode) return;
+        const room = JSON.parse(await redisClient.get(`room:${roomCode}`));
+        if (!room) return;
+        
+        const state = room.gameState;
+
+        // Non puoi prenotare se è il tuo turno (in quel caso peschi normale)
+        if (state.currentPlayerId === socket.id) return;
+        
+        // Non puoi prenotare se hai già pescato o se non siamo in fase di pesca
+        if (state.turnPhase !== 'draw') return;
+
+        // Logica semplice: il primo che prenota vince la priorità sullo scarto (dopo il giocatore di turno)
+        // Se vuoi gestire priorità per ordine di seduta (es. G3 vince su G4), serve logica più complessa.
+        // Qui usiamo "chi preme prima vince la prenotazione".
+        state.pendingDiscardRequest = socket.id;
+
+        await redisClient.set(`room:${roomCode}`, JSON.stringify(room));
+        
+        // Avvisiamo tutti che qualcuno ha prenotato (opzionale, per effetti grafici)
+        io.to(roomCode).emit('message', { 
+            title: "Prenotazione", 
+            message: `${room.players[socket.id].name} ha prenotato lo scarto!` 
+        });
+    });
+
     socket.on('joinRoom', async ({ roomCode, playerName, uniquePlayerId }) => {
         roomCode = roomCode.toUpperCase();
         const roomDataString = await redisClient.get(`room:${roomCode}`);
@@ -200,10 +228,11 @@ io.on('connection', (socket) => {
         const room = JSON.parse(await redisClient.get(`room:${roomCode}`));
         if (!room) return;
         const state = room.gameState;
-        const player = room.players[socket.id];
+        const currentPlayer = room.players[socket.id];
 
-        if (!player || state.currentPlayerId !== socket.id || state.hasDrawn) return;
+        if (!currentPlayer || state.currentPlayerId !== socket.id || state.hasDrawn) return;
         
+        // --- GESTIONE MAZZO VUOTO (Tua logica esistente) ---
         if (state.deck.length === 0) {
             if (state.discardPile.length <= 1) return socket.emit('message', { title: "Mazzo vuoto", message: "Non ci sono più carte." });
             const topDiscard = state.discardPile.pop();
@@ -212,13 +241,47 @@ io.on('connection', (socket) => {
             io.to(roomCode).emit('message', { title: "Mazzo Terminato", message: "Il pozzo degli scarti è stato rimescolato." });
         }
 
+        // --- NUOVA LOGICA: CONTROLLO PRENOTAZIONE ---
+        // Se il giocatore di turno pesca dal mazzo, "rinuncia" allo scarto.
+        // Se c'è qualcuno che lo ha prenotato, glielo diamo.
+        if (state.pendingDiscardRequest && state.discardPile.length > 0) {
+            const bookingPlayerId = state.pendingDiscardRequest;
+            const bookingPlayer = room.players[bookingPlayerId];
+            
+            // Verifichiamo che il giocatore esista ancora
+            if (bookingPlayer) {
+                const stolenCard = state.discardPile.pop(); // Togliamo lo scarto
+                bookingPlayer.hand.push(stolenCard);        // Lo diamo a chi ha prenotato
+                if (!bookingPlayer.groups || bookingPlayer.groups.length === 0) bookingPlayer.groups = [[]];
+                bookingPlayer.groups[0].push(stolenCard.id);
+
+                // --- REGOLA OPZIONALE: PENALITÀ ---
+                // Di solito nel Carioca chi "compra" prende scarto + 1 carta dal mazzo di penalità.
+                // Se vuoi la penalità, togli i commenti qui sotto:
+                /*
+                if (state.deck.length > 0) {
+                    const penaltyCard = state.deck.pop();
+                    bookingPlayer.hand.push(penaltyCard);
+                    bookingPlayer.groups[0].push(penaltyCard.id);
+                }
+                */
+
+                io.to(roomCode).emit('message', { 
+                    title: "Scarto Preso!", 
+                    message: `${bookingPlayer.name} ha preso lo scarto rifiutato da ${currentPlayer.name}.` 
+                });
+            }
+            state.pendingDiscardRequest = null; // Reset
+        }
+
+        // --- ESECUZIONE NORMALE PER IL GIOCATORE DI TURNO ---
         const card = state.deck.pop();
-        player.hand.push(card);
-        if (!player.groups || player.groups.length === 0) player.groups = [[]];
-        player.groups[0].unshift(card.id);
+        currentPlayer.hand.push(card);
+        if (!currentPlayer.groups || currentPlayer.groups.length === 0) currentPlayer.groups = [[]];
+        currentPlayer.groups[0].unshift(card.id);
         
         state.hasDrawn = true;
-        state.turnPhase = 'play'; // Fase di gioco attiva
+        state.turnPhase = 'play';
 
         await redisClient.set(`room:${roomCode}`, JSON.stringify(room));
         updateRoomState(roomCode, room);
@@ -227,22 +290,44 @@ io.on('connection', (socket) => {
     socket.on('drawFromDiscard', async () => {
         const roomCode = socket.roomCode;
         if (!roomCode) return;
+        
+        // 1. Recupera lo stato aggiornato
         const room = JSON.parse(await redisClient.get(`room:${roomCode}`));
         if (!room) return;
+        
         const state = room.gameState;
         const player = room.players[socket.id];
 
+        // 2. Controlli di sicurezza (è il tuo turno? hai già pescato?)
         if (!player || state.currentPlayerId !== socket.id || state.hasDrawn) return;
-        if (state.discardPile.length === 0) return socket.emit('message', {title: "Scarto vuoto", message: "Non ci sono carte da pescare."});
         
+        // 3. Controlla se ci sono carte da pescare
+        if (state.discardPile.length === 0) {
+            return socket.emit('message', { title: "Scarto vuoto", message: "Non ci sono carte da pescare." });
+        }
+        
+        // ============================================================
+        // LOGICA PRENOTAZIONE (La parte importante)
+        // ============================================================
+        // Poiché il giocatore di turno HA DECISO di prendere lo scarto,
+        // lui ha la priorità su chiunque altro.
+        // Se qualcuno aveva prenotato ("comprato") questa carta, la sua richiesta viene annullata.
+        state.pendingDiscardRequest = null; 
+        // ============================================================
+
+        // 4. Sposta la carta dallo scarto alla mano
         const card = state.discardPile.pop();
         player.hand.push(card);
+
+        // 5. Aggiorna i gruppi visivi (aggiunge la carta al primo gruppo)
         if (!player.groups || player.groups.length === 0) player.groups = [[]];
         player.groups[0].unshift(card.id);
         
+        // 6. Aggiorna lo stato del turno
         state.hasDrawn = true;
-        state.turnPhase = 'play';
+        state.turnPhase = 'play'; // Ora deve scartare o calare
         
+        // 7. Salva e invia aggiornamenti
         await redisClient.set(`room:${roomCode}`, JSON.stringify(room));
         updateRoomState(roomCode, room);
     });
@@ -543,34 +628,60 @@ async function updateRoomState(roomCode, roomObject = null) {
 }
 
 async function startGame(roomCode) {
+    // 1. Scarichiamo la stanza da Redis
     const room = JSON.parse(await redisClient.get(`room:${roomCode}`));
     if (!room) return;
     
+    // 2. Creiamo il riferimento allo stato (che è stato creato in createRoom)
     const state = room.gameState;
     const playerIds = Object.keys(room.players);
 
+    // ============================================================
+    // RESET VARIABILI PER LA NUOVA MANCHE
+    // ============================================================
     state.gamePhase = 'playing';
     state.hasDrawn = false;
+    
+    // ★ IMPORTANTE: Resettiamo la richiesta di scarto all'inizio della manche
+    state.pendingDiscardRequest = null; 
+
     state.deck = gameLogic.createDeck();
-    state.tableCombinations = [];
+    state.tableCombinations = []; // Pulisce il tavolo
+    
+    // Reset delle mani dei giocatori
     playerIds.forEach(pid => {
         room.players[pid].hand = [];
         room.players[pid].dressed = false;
-        // Reset del punteggio solo all'inizio assoluto, non tra le manche (già gestito dalla variabile score persistente)
+        // Nota: non resettiamo 'score', quello persiste tra le manche
     });
 
+    // ============================================================
+    // DISTRIBUZIONE CARTE
+    // ============================================================
+    // Se ci sono più di 2 giocatori, si danno 11 carte. Se sono in 2, se ne danno 13.
     const cardsToDeal = playerIds.length > 2 ? 11 : 13;
+    
     for(let i = 0; i < cardsToDeal; i++) {
         for(const pid of playerIds) {
             if (state.deck.length > 0) room.players[pid].hand.push(state.deck.pop());
         }
     }
+
+    // Creiamo i gruppi visivi per il frontend
     playerIds.forEach(pid => {
         room.players[pid].groups = [room.players[pid].hand.map(card => card.id)];
     });
+
+    // ============================================================
+    // PREPARAZIONE PRIMO TURNO
+    // ============================================================
+    // Mettiamo la prima carta nello scarto
     state.discardPile = [state.deck.pop()];
+    
+    // Scegliamo un primo giocatore a caso
     state.currentPlayerId = playerIds[Math.floor(Math.random() * playerIds.length)];
     
+    // Salviamo tutto su Redis e aggiorniamo i client
     await redisClient.set(`room:${roomCode}`, JSON.stringify(room));
     updateRoomState(roomCode, room);
 }
@@ -587,6 +698,7 @@ async function endTurn(roomCode, forceImmediateUpdate = false) {
     }
 
     const currentPlayerIndex = playerIds.indexOf(state.currentPlayerId);
+    state.pendingDiscardRequest = null; // 
     state.currentPlayerId = playerIds[(currentPlayerIndex + 1) % playerIds.length] || playerIds[0];
     state.hasDrawn = false;
     

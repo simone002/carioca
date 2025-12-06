@@ -340,6 +340,29 @@ function updateTableCombinations() {
 
 function updateButtons() {
     const isMyTurn = gameState.currentPlayerId === myPlayerId;
+
+    const bookBtn = document.getElementById('book-discard-btn');
+    if (bookBtn) {
+        // Mostra il bottone SE:
+        // 1. NON è il mio turno
+        // 2. Siamo nella fase di pesca ('draw')
+        // 3. C'è almeno una carta negli scarti
+        // 4. Non ho già pescato (non dovrebbe succedere se non è il mio turno, ma per sicurezza)
+        
+        const canBook = !isMyTurn && 
+                        gameState.turnPhase === 'draw' && 
+                        gameState.discardPile && 
+                        gameState.discardPile.length > 0;
+
+        bookBtn.style.display = canBook ? 'inline-block' : 'none';
+        
+        // Resetta lo stato del bottone se riappare
+        if (canBook && bookBtn.textContent === "Prenotato!" && gameState.pendingDiscardRequest !== myPlayerId) {
+             bookBtn.disabled = false;
+             bookBtn.textContent = "Prenota Scarto";
+        }
+    }
+    
     const hasSelected = selectedCardIndexes.size > 0;
     const myPlayerInfo = gameState.players ? gameState.players[myPlayerId] : null;
     if (!myPlayerInfo) return;
@@ -492,6 +515,16 @@ function showMessage(title, message) {
 function closeModal() { 
     document.getElementById('message-modal').style.display = 'none'; 
     document.getElementById('joker-modal').style.display = 'none';
+}
+
+function bookDiscard() {
+    socket.emit('bookDiscard');
+    // Feedback visivo immediato (disabilita bottone per evitare spam)
+    const btn = document.getElementById('book-discard-btn');
+    if(btn) {
+        btn.disabled = true;
+        btn.textContent = "Prenotato!";
+    }
 }
 
 // Initialize
