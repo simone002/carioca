@@ -99,24 +99,25 @@ io.on('connection', (socket) => {
         
         const state = room.gameState;
 
-        // Non puoi prenotare se è il tuo turno (in quel caso peschi normale)
+        // Non puoi prenotare se è il tuo turno
         if (state.currentPlayerId === socket.id) return;
-        
-        // Non puoi prenotare se hai già pescato o se non siamo in fase di pesca
         if (state.turnPhase !== 'draw') return;
 
-        // Logica semplice: il primo che prenota vince la priorità sullo scarto (dopo il giocatore di turno)
-        // Se vuoi gestire priorità per ordine di seduta (es. G3 vince su G4), serve logica più complessa.
-        // Qui usiamo "chi preme prima vince la prenotazione".
-        state.pendingDiscardRequest = socket.id;
+        // Se l'array non esiste (sicurezza), crealo
+        if (!state.discardRequests) state.discardRequests = [];
 
-        await redisClient.set(`room:${roomCode}`, JSON.stringify(room));
-        
-        // Avvisiamo tutti che qualcuno ha prenotato (opzionale, per effetti grafici)
-        io.to(roomCode).emit('message', { 
-            title: "Prenotazione", 
-            message: `${room.players[socket.id].name} ha prenotato lo scarto!` 
-        });
+        // Se il giocatore non si è già prenotato, aggiungilo alla lista
+        if (!state.discardRequests.includes(socket.id)) {
+            state.discardRequests.push(socket.id);
+            
+            await redisClient.set(`room:${roomCode}`, JSON.stringify(room));
+            
+            // Conferma al giocatore che la prenotazione è registrata
+            socket.emit('message', { title: "Prenotazione", message: "Hai richiesto lo scarto. Se hai la priorità, sarà tuo." });
+            
+            // (Opzionale) Aggiorna l'interfaccia degli altri per mostrare quante persone vogliono la carta
+            io.to(roomCode).emit('discardBookedUpdate', { count: state.discardRequests.length });
+        }
     });
 
     socket.on('joinRoom', async ({ roomCode, playerName, uniquePlayerId }) => {
@@ -232,49 +233,64 @@ io.on('connection', (socket) => {
 
         if (!currentPlayer || state.currentPlayerId !== socket.id || state.hasDrawn) return;
         
-        // --- GESTIONE MAZZO VUOTO (Tua logica esistente) ---
+        // (Logica mazzo vuoto esistente...)
         if (state.deck.length === 0) {
-            if (state.discardPile.length <= 1) return socket.emit('message', { title: "Mazzo vuoto", message: "Non ci sono più carte." });
-            const topDiscard = state.discardPile.pop();
-            state.deck = gameLogic.shuffleDeck(state.discardPile);
-            state.discardPile = [topDiscard];
-            io.to(roomCode).emit('message', { title: "Mazzo Terminato", message: "Il pozzo degli scarti è stato rimescolato." });
+           // ... (copia tua logica mazzo vuoto qui) ...
+           if (state.discardPile.length <= 1) return socket.emit('message', { title: "Mazzo vuoto", message: "Non ci sono più carte." });
+           const topDiscard = state.discardPile.pop();
+           state.deck = gameLogic.shuffleDeck(state.discardPile);
+           state.discardPile = [topDiscard];
+           io.to(roomCode).emit('message', { title: "Mazzo Terminato", message: "Il pozzo degli scarti è stato rimescolato." });
         }
 
-        // --- NUOVA LOGICA: CONTROLLO PRENOTAZIONE ---
-        // Se il giocatore di turno pesca dal mazzo, "rinuncia" allo scarto.
-        // Se c'è qualcuno che lo ha prenotato, glielo diamo.
-        if (state.pendingDiscardRequest && state.discardPile.length > 0) {
-            const bookingPlayerId = state.pendingDiscardRequest;
-            const bookingPlayer = room.players[bookingPlayerId];
+        // ============================================================
+        // LOGICA ASSEGNAZIONE SCARTO PER PRIORITÀ DI GIRO
+        // ============================================================
+        if (state.discardRequests && state.discardRequests.length > 0 && state.discardPile.length > 0) {
             
-            // Verifichiamo che il giocatore esista ancora
-            if (bookingPlayer) {
-                const stolenCard = state.discardPile.pop(); // Togliamo lo scarto
-                bookingPlayer.hand.push(stolenCard);        // Lo diamo a chi ha prenotato
+            const playerIds = Object.keys(room.players); // Ordine di inserimento/connessione (o usa un array ordinato se lo hai)
+            
+            // Troviamo l'indice del giocatore corrente
+            const currentTurnIndex = playerIds.indexOf(state.currentPlayerId);
+            
+            let winnerId = null;
+            let minDistance = Infinity;
+
+            // Calcoliamo la distanza di ogni richiedente dal giocatore di turno
+            state.discardRequests.forEach(requesterId => {
+                const reqIndex = playerIds.indexOf(requesterId);
+                
+                // Formula magica per la distanza ciclica (senso orario)
+                // Esempio: Giocatori [0, 1, 2, 3]. Turno 1. Richiedente 3.
+                // (3 - 1 + 4) % 4 = 2 passi di distanza.
+                let distance = (reqIndex - currentTurnIndex + playerIds.length) % playerIds.length;
+                
+                if (distance < minDistance) {
+                    minDistance = distance;
+                    winnerId = requesterId;
+                }
+            });
+
+            // Assegniamo la carta al vincitore
+            if (winnerId) {
+                const bookingPlayer = room.players[winnerId];
+                const stolenCard = state.discardPile.pop();
+                
+                bookingPlayer.hand.push(stolenCard);
                 if (!bookingPlayer.groups || bookingPlayer.groups.length === 0) bookingPlayer.groups = [[]];
                 bookingPlayer.groups[0].push(stolenCard.id);
 
-                // --- REGOLA OPZIONALE: PENALITÀ ---
-                // Di solito nel Carioca chi "compra" prende scarto + 1 carta dal mazzo di penalità.
-                // Se vuoi la penalità, togli i commenti qui sotto:
-                /*
-                if (state.deck.length > 0) {
-                    const penaltyCard = state.deck.pop();
-                    bookingPlayer.hand.push(penaltyCard);
-                    bookingPlayer.groups[0].push(penaltyCard.id);
-                }
-                */
-
                 io.to(roomCode).emit('message', { 
-                    title: "Scarto Preso!", 
-                    message: `${bookingPlayer.name} ha preso lo scarto rifiutato da ${currentPlayer.name}.` 
+                    title: "Scarto Assegnato", 
+                    message: `${bookingPlayer.name} prende lo scarto (priorità di giro).` 
                 });
             }
-            state.pendingDiscardRequest = null; // Reset
         }
+        // Reset delle richieste
+        state.discardRequests = []; 
+        // ============================================================
 
-        // --- ESECUZIONE NORMALE PER IL GIOCATORE DI TURNO ---
+        // Pesca normale dal mazzo per il giocatore di turno
         const card = state.deck.pop();
         currentPlayer.hand.push(card);
         if (!currentPlayer.groups || currentPlayer.groups.length === 0) currentPlayer.groups = [[]];
@@ -298,6 +314,7 @@ io.on('connection', (socket) => {
         const state = room.gameState;
         const player = room.players[socket.id];
 
+        state.discardRequests = [];
         // 2. Controlli di sicurezza (è il tuo turno? hai già pescato?)
         if (!player || state.currentPlayerId !== socket.id || state.hasDrawn) return;
         
@@ -641,6 +658,7 @@ async function startGame(roomCode) {
     // ============================================================
     state.gamePhase = 'playing';
     state.hasDrawn = false;
+    state.discardRequests =[];
     
     // ★ IMPORTANTE: Resettiamo la richiesta di scarto all'inizio della manche
     state.pendingDiscardRequest = null; 
@@ -699,6 +717,7 @@ async function endTurn(roomCode, forceImmediateUpdate = false) {
 
     const currentPlayerIndex = playerIds.indexOf(state.currentPlayerId);
     state.pendingDiscardRequest = null; // 
+    state.discardRequests =[];
     state.currentPlayerId = playerIds[(currentPlayerIndex + 1) % playerIds.length] || playerIds[0];
     state.hasDrawn = false;
     
