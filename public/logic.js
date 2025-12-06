@@ -259,74 +259,27 @@ function isValidSet(nonJokers, jokers) {
 
 
 function isValidRun(cards) {
-    const jokers = cards.filter(c => c.isJoker && !c.isVirtual).length;
-    const nonJokers = cards.filter(c => !c.isJoker || c.isVirtual);
-    
-    if (nonJokers.length + jokers < 3) return false;
-    if (nonJokers.length === 0) return true;
-
-    const suit = nonJokers[0].suit;
-    if (!nonJokers.every(c => c.suit === suit)) return false;
-
-    const values = nonJokers.map(c => c.value);
-    if (new Set(values).size !== values.length) return false;
-
-    // --- TENTATIVO 1: Asso come carta bassa (valore 1) ---
-    const lowAceNumericValues = nonJokers.map(c => getCardNumericValue(c.value, false)).sort((a, b) => a - b);
-    let lowAceGaps = 0;
-    for (let i = 0; i < lowAceNumericValues.length - 1; i++) {
-        const diff = lowAceNumericValues[i+1] - lowAceNumericValues[i] - 1;
-        if (diff < 0) { // Duplicato o ordine errato, dovrebbe essere già gestito, ma per sicurezza
-            lowAceGaps = Infinity;
-            break;
-        }
-        lowAceGaps += diff;
-    }
-
-    if (lowAceGaps <= jokers) {
-        return true;
-    }
-
-    // --- TENTATIVO 2: Asso come carta alta (valore 14) ---
-    if (values.includes('A')) {
-        // ✅ CONTROLLO AGGIUNTIVO FONDAMENTALE ✅
-        // Una scala con l'Asso alto non può contenere carte più basse del 10.
-        const hasLowCards = values.some(v => v !== 'A' && parseInt(v) < 10);
-        if (hasLowCards) {
-            return false; // Se ci sono carte basse (2-9), non può essere una scala con Asso alto.
-        }
-
-        const highAceNumericValues = nonJokers.map(c => getCardNumericValue(c.value, true)).sort((a, b) => a - b);
-        let highAceGaps = 0;
-        for (let i = 0; i < highAceNumericValues.length - 1; i++) {
-            const diff = highAceNumericValues[i+1] - highAceNumericValues[i] - 1;
-             if (diff < 0) {
-                highAceGaps = Infinity;
-                break;
-            }
-            highAceGaps += diff;
-        }
-        
-        if (highAceGaps <= jokers) {
-            return true;
-        }
-    }
-    
-    return false;
+    // Passiamo semplicemente la lunghezza attuale delle carte come requisito.
+    // In questo modo usiamo la logica "intelligente" dell'Asso che abbiamo appena scritto.
+    return validateSequenza(cards, cards.length);
 }
 
 function validateChiusura(cards) {
-    if (cards.length < 13) return false; // Typically requires a full hand
-    // This logic is extremely complex (NP-hard problem). A simplified check is more realistic.
-    // For now, let's assume it checks if all but one card can be formed into valid melds.
-    // The recursive `canPartitionIntoValidGames` is a good approach but can be slow.
+    // Serve avere almeno carte sufficienti per un gioco (3) + 1 scarto
+    if (cards.length < 4) return false;
+
+    // Proviamo a scartare una carta alla volta
     for (let i = 0; i < cards.length; i++) {
-        let handToMeld = cards.slice(0, i).concat(cards.slice(i + 1));
-        if (canPartitionIntoValidGames(handToMeld)) {
-            return true;
+        // Crea una mano temporanea rimuovendo la carta all'indice 'i'
+        const handMinusOne = cards.slice(0, i).concat(cards.slice(i + 1));
+
+        // Controlla se le carte rimanenti formano giochi validi completi
+        if (canPartitionIntoMelds(handMinusOne)) {
+            return true; // Trovata una chiusura valida!
         }
     }
-    return false;
+    
+    return false; // Nessuna combinazione di chiusura trovata
 }
 
 function canPartitionIntoValidGames(cards) {
@@ -351,24 +304,38 @@ function validateSequenza(cards, requiredLength) {
     if (cards.length !== requiredLength) return false;
     let jokers = cards.filter(c => c.isJoker).length;
     let nonJokers = cards.filter(c => !c.isJoker);
-    
-    if(nonJokers.length === 0) return jokers >= requiredLength;
 
-    // Check if all non-jokers have the same suit
+    if (nonJokers.length === 0) return jokers >= requiredLength;
+
     const suit = nonJokers[0].suit;
     if (!nonJokers.every(c => c.suit === suit)) return false;
 
-    const values = nonJokers.map(c => getCardNumericValue(c.value)).sort((a, b) => a - b);
-    
-    // Check for duplicate values
-    if (new Set(values).size !== values.length) return false;
+    // Check 1: Ace as Low (1)
+    const lowValues = nonJokers.map(c => getCardNumericValue(c.value, false)).sort((a, b) => a - b);
+    if (checkGaps(lowValues, jokers)) return true;
 
-    let gaps = 0;
-    for (let i = 0; i < values.length - 1; i++) {
-        gaps += (values[i+1] - values[i]) - 1;
+    // Check 2: Ace as High (14)
+    // Constraint: High Ace runs cannot contain 2, 3, 4, etc.
+    if (nonJokers.some(c => c.value === 'A')) {
+        const highValues = nonJokers.map(c => getCardNumericValue(c.value, true)).sort((a, b) => a - b);
+        // If we use High Ace, the smallest card cannot be < 10 (unless it's the Ace itself which is now 14)
+        // Actually, just checking gaps is sufficient, because [2, 14] is a gap of 11, which fails naturally.
+        if (checkGaps(highValues, jokers)) return true;
     }
 
-    return gaps <= jokers;
+    return false;
+}
+
+// Helper to calculate gaps
+function checkGaps(sortedValues, jokerCount) {
+    // Check for duplicates (invalid in a run)
+    if (new Set(sortedValues).size !== sortedValues.length) return false;
+
+    let gaps = 0;
+    for (let i = 0; i < sortedValues.length - 1; i++) {
+        gaps += (sortedValues[i + 1] - sortedValues[i]) - 1;
+    }
+    return gaps <= jokerCount;
 }
 
 
