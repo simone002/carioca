@@ -259,8 +259,6 @@ function isValidSet(nonJokers, jokers) {
 
 
 function isValidRun(cards) {
-    // Passiamo semplicemente la lunghezza attuale delle carte come requisito.
-    // In questo modo usiamo la logica "intelligente" dell'Asso che abbiamo appena scritto.
     return validateSequenza(cards, cards.length);
 }
 

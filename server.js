@@ -4,16 +4,16 @@ const http = require('http');
 const { Server } = require("socket.io");
 const path = require('path');
 const { createClient } = require('redis');
-const gameLogic = require('./public/logic.js');
+const gameLogic = require('./public/logic.js'); // Assicurati che il percorso sia corretto
 
 const app = express();
 const server = http.createServer(app);
-// ✅ CON QUESTA NUOVA VERSIONE
+
 const io = new Server(server, {
     pingInterval: 5000,
     pingTimeout: 10000,
     cors: {
-        origin: "https://carioca-02wq.onrender.com", // Autorizza esplicitamente il tuo sito
+        origin: "https://carioca-02wq.onrender.com", // Il tuo dominio
         methods: ["GET", "POST"]
     }
 });
@@ -29,6 +29,7 @@ redisClient.on('error', (err) => console.log('Redis Client Error', err));
 
 app.use(express.static(path.join(__dirname, 'public')));
 
+// --- Funzioni Helper per Redis ---
 async function findRoomAndPlayerByUniqueId(uniquePlayerId) {
     const roomKeys = await redisClient.keys('room:*');
     for (const roomKey of roomKeys) {
@@ -65,7 +66,7 @@ async function findRoomBySocketId(socketId) {
     return { roomCode: null, room: null };
 }
 
-
+// --- Logica Socket.IO ---
 io.on('connection', (socket) => {
     console.log(`Un utente si è connesso: ${socket.id}`);
 
@@ -142,6 +143,7 @@ io.on('connection', (socket) => {
         const room = JSON.parse(await redisClient.get(`room:${roomCode}`));
         if (!room) return;
 
+        // >= 2 giocatori (modifica a 1 per test se necessario)
         if (room.hostId === socket.id && Object.keys(room.players).length >= 2) {
             room.gameState.mancheOrder = (customMancheOrder && customMancheOrder.length === gameLogic.manches.length)
                 ? customMancheOrder
@@ -214,8 +216,9 @@ io.on('connection', (socket) => {
         player.hand.push(card);
         if (!player.groups || player.groups.length === 0) player.groups = [[]];
         player.groups[0].unshift(card.id);
+        
         state.hasDrawn = true;
-        state.turnPhase = 'play'; // ✅ RIGA MANCANTE DA AGGIUNGERE
+        state.turnPhase = 'play'; // Fase di gioco attiva
 
         await redisClient.set(`room:${roomCode}`, JSON.stringify(room));
         updateRoomState(roomCode, room);
@@ -236,8 +239,9 @@ io.on('connection', (socket) => {
         player.hand.push(card);
         if (!player.groups || player.groups.length === 0) player.groups = [[]];
         player.groups[0].unshift(card.id);
+        
         state.hasDrawn = true;
-        state.turnPhase = 'play'; // ✅ RIGA MANCANTE DA AGGIUNGERE
+        state.turnPhase = 'play';
         
         await redisClient.set(`room:${roomCode}`, JSON.stringify(room));
         updateRoomState(roomCode, room);
@@ -264,14 +268,17 @@ io.on('connection', (socket) => {
         }
         
         const discardedCard = player.hand.splice(cardIndex, 1)[0];
+        // Rimuovi anche dai gruppi
         player.groups.forEach(group => {
             const indexInGroup = group.indexOf(discardedCard.id);
             if (indexInGroup > -1) group.splice(indexInGroup, 1);
         });
+        
         state.discardPile.push(discardedCard);
         
         await redisClient.set(`room:${roomCode}`, JSON.stringify(room));
         
+        // Se ha 0 carte ha chiuso
         if (player.hand.length === 0) {
             await endManche(roomCode);
         } else {
@@ -296,10 +303,12 @@ io.on('connection', (socket) => {
         const currentMancheRequirement = state.mancheOrder[state.currentManche - 1];
         const hasJoker = originalSelectedCards.some(card => card.isJoker);
 
+        // Regola speciale: Chiusura in mano può usare jolly
         if (hasJoker && currentMancheRequirement !== 'chiusura in mano') {
             return socket.emit('message', { title: "Mossa non Permessa", message: "Non puoi usare un Jolly per calare la combinazione principale." });
         }
         
+        // Crea carte virtuali per la validazione
         let virtualCards = JSON.parse(JSON.stringify(originalSelectedCards));
         jokerAssignments.forEach(assignment => {
             const jokerInHand = player.hand[assignment.index];
@@ -307,6 +316,8 @@ io.on('connection', (socket) => {
                 const virtualCardIndex = virtualCards.findIndex(c => c.id === jokerInHand.id);
                 if(virtualCardIndex !== -1){
                     virtualCards[virtualCardIndex] = { ...assignment.becomes, isVirtual: true, points: gameLogic.getCardPoints(assignment.becomes.value) };
+                    
+                    // Assegna valori anche alle carte originali che finiranno sul tavolo
                     const originalCard = originalSelectedCards.find(c => c.id === jokerInHand.id);
                     if(originalCard){
                         originalCard.assignedValue = assignment.becomes.value;
@@ -319,10 +330,15 @@ io.on('connection', (socket) => {
         const manche = gameLogic.manches.find(m => m.requirement === currentMancheRequirement);
         if (!manche) return;
 
+        // La funzione gameLogic.validateCombination gestirà 'chiusura in mano' (validando le 13 carte)
         if (gameLogic.validateCombination(virtualCards, manche.requirement)) {
             const selectedCardIds = originalSelectedCards.map(c => c.id);
             player.hand = player.hand.filter(c => !selectedCardIds.includes(c.id));
             player.groups.forEach(group => group.splice(0, group.length, ...group.filter(id => !selectedCardIds.includes(id))));
+            
+            // Ordina la combinazione per visualizzazione corretta
+            if (manche.requirement === 'scala') sortCards(originalSelectedCards);
+
             state.tableCombinations.push({ player: player.name, type: manche.name, cards: originalSelectedCards });
             player.dressed = true;
             
@@ -367,6 +383,7 @@ io.on('connection', (socket) => {
         
         let moveMade = false;
     
+        // Caso 1: Nuova combinazione (Tris o Scala separata)
         if (selectedIndexes.length >= 3) {
             let combinationType = null;
             if (gameLogic.isValidSet(virtualCards)) {
@@ -379,25 +396,35 @@ io.on('connection', (socket) => {
                 const selectedCardIds = originalSelectedCards.map(c => c.id);
                 player.hand = player.hand.filter(c => !selectedCardIds.includes(c.id));
                 player.groups.forEach(g => g.splice(0, g.length, ...g.filter(id => !selectedCardIds.includes(id))));
+                
+                if (combinationType === 'Scala') sortCards(originalSelectedCards);
+                
                 const newCombination = { player: player.name, type: combinationType, cards: originalSelectedCards };
-                if (combinationType === 'Scala') sortCards(newCombination.cards);
                 state.tableCombinations.push(newCombination);
+                
                 socket.emit('message', { title: "Combinazione Calata!", message: `Hai formato: ${combinationType}.` });
                 moveMade = true;
             }
         }
         
+        // Caso 2: Attaccare a combinazioni esistenti
         if (!moveMade) {
              for (const combo of state.tableCombinations) {
+                // Uniamo le carte virtuali a quelle già sul tavolo per verificare
                 const combinedVirtualCards = [...combo.cards, ...virtualCards];
+                
+                // NOTA: isValidSet e isValidRun gestiranno la logica (incluso Asso Alto/Basso se aggiornate in logic.js)
                 if (gameLogic.isValidSet(combinedVirtualCards) || gameLogic.isValidRun(combinedVirtualCards)) {
+                    
                     const selectedCardIds = originalSelectedCards.map(c => c.id);
                     player.hand = player.hand.filter(c => !selectedCardIds.includes(c.id));
                     player.groups.forEach(g => g.splice(0, g.length, ...g.filter(id => !selectedCardIds.includes(id))));
+                    
                     combo.cards.push(...originalSelectedCards);
+                    
                     if (gameLogic.isValidRun(combinedVirtualCards)) {
                         combo.type = 'Scala';
-                        sortCards(combo.cards);
+                        sortCards(combo.cards); // Riordina la scala con le nuove carte
                     }
                     socket.emit('message', { title: "Carte Attaccate!", message: `Hai attaccato con successo.` });
                     moveMade = true;
@@ -410,7 +437,7 @@ io.on('connection', (socket) => {
             await redisClient.set(`room:${roomCode}`, JSON.stringify(room));
             updateRoomState(roomCode, room);
         } else {
-            socket.emit('message', { title: "Mossa non valida", message: "Le carte non sono valide." });
+            socket.emit('message', { title: "Mossa non valida", message: "Le carte non sono valide per creare o attaccare giochi." });
         }
     });
 
@@ -431,6 +458,7 @@ io.on('connection', (socket) => {
         
         if (!jokerOnTable || !cardInHand || !jokerOnTable.assignedValue) return;
     
+        // Controllo corrispondenza (inclusi Semi)
         if (cardInHand.value === jokerOnTable.assignedValue && cardInHand.suit === jokerOnTable.assignedSuit) {
             const jokerIndexOnTable = combo.cards.findIndex(c => c.id === tableJokerId);
             const handCardIndex = player.hand.findIndex(c => c.id === handCardId);
@@ -453,18 +481,14 @@ io.on('connection', (socket) => {
             updateRoomState(roomCode, room);
             socket.emit('message', { title: "Scambio Riuscito!", message: "Hai preso il Jolly!" });
         } else {
-            socket.emit('message', { title: "Scambio non valido", message: "La carta non corrisponde al Jolly." });
+            socket.emit('message', { title: "Scambio non valido", message: "La carta non corrisponde al Jolly (controlla valore e seme)." });
         }
     });
-
-
 
     socket.on('disconnect', async () => {
         const { roomCode, room } = await findRoomBySocketId(socket.id);
         if (roomCode && room) {
             console.log(`Giocatore ${room.players[socket.id]?.name || socket.id} disconnesso da ${roomCode}`);
-            // La logica di riconnessione gestirà il rientro. 
-            // Potremmo aggiungere un timer per rimuovere definitivamente i giocatori inattivi, ma per ora lo lasciamo così.
         }
     });
 });
@@ -509,6 +533,7 @@ async function updateRoomState(roomCode, roomObject = null) {
                 ...publicGameState, playerHand: player.hand,
                 players: {
                     ...publicGameState.players,
+                    // Invia i gruppi del giocatore specifico
                     [playerId]: { ...publicGameState.players[playerId], groups: player.groups }
                 }
             };
@@ -531,6 +556,7 @@ async function startGame(roomCode) {
     playerIds.forEach(pid => {
         room.players[pid].hand = [];
         room.players[pid].dressed = false;
+        // Reset del punteggio solo all'inizio assoluto, non tra le manche (già gestito dalla variabile score persistente)
     });
 
     const cardsToDeal = playerIds.length > 2 ? 11 : 13;
@@ -555,7 +581,7 @@ async function endTurn(roomCode, forceImmediateUpdate = false) {
 
     const state = room.gameState;
     const playerIds = Object.keys(room.players);
-    if (playerIds.length === 0) { // Se non ci sono più giocatori, cancella la stanza
+    if (playerIds.length === 0) { 
         await redisClient.del(`room:${roomCode}`);
         return;
     }
@@ -595,7 +621,7 @@ async function endManche(roomCode) {
     state.currentManche++;
     
     if (state.currentManche > state.mancheOrder.length) {
-        await redisClient.set(`room:${roomCode}`, JSON.stringify(room)); // Salva i punteggi finali prima di terminare
+        await redisClient.set(`room:${roomCode}`, JSON.stringify(room)); 
         await endGame(roomCode);
     } else {
         state.gamePhase = 'choose_next_manche';
@@ -624,10 +650,27 @@ async function endGame(roomCode) {
     await redisClient.del(`room:${roomCode}`);
 }
 
+// ============================================
+// # ORDINAMENTO INTELLIGENTE (Asso Basso/Alto)
+// ============================================
 function sortCards(cards) {
-    const valueOrder = ['A', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K'];
-    const getCardValue = (card) => (card.isJoker && card.assignedValue) ? card.assignedValue : card.value;
-    cards.sort((a, b) => valueOrder.indexOf(getCardValue(a)) - valueOrder.indexOf(getCardValue(b)));
+    // 1. Controlla se è una scala con Asso Alto (Q, K, A)
+    const hasKing = cards.some(c => (c.isJoker && c.assignedValue === 'K') || c.value === 'K');
+    const hasAce = cards.some(c => (c.isJoker && c.assignedValue === 'A') || c.value === 'A');
+    // Se c'è K e A, assumiamo sia una scala alta
+    const aceIsHigh = hasKing && hasAce; 
+
+    // Mappatura numerica per l'ordinamento
+    const getVal = (card) => {
+        let v = (card.isJoker && card.assignedValue) ? card.assignedValue : card.value;
+        if (v === 'A') return aceIsHigh ? 14 : 1; // Asso dinamico
+        if (v === 'K') return 13;
+        if (v === 'Q') return 12;
+        if (v === 'J') return 11;
+        return parseInt(v);
+    };
+
+    cards.sort((a, b) => getVal(a) - getVal(b));
 }
 
 server.listen(PORT, () => {
