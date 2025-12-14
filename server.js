@@ -21,10 +21,25 @@ const io = new Server(server, {
 const PORT = process.env.PORT || 3000;
 const MAX_PLAYERS = 4;
 
-// --- Connessione a Redis ---
-const redisClient = createClient({ url: process.env.REDIS_URL });
-redisClient.on('error', (err) => console.log('Redis Client Error', err));
-(async () => { await redisClient.connect(); console.log('Connesso a Redis con successo!'); })();
+// --- Connessione a Redis (Versione Upstash) ---
+const redisClient = createClient({ 
+    url: process.env.REDIS_URL,
+    socket: {
+        tls: true, // Obbligatorio per Upstash
+        rejectUnauthorized: false // Evita errori di certificato su alcuni server
+    }
+});
+
+redisClient.on('error', (err) => console.error('Redis Client Error', err));
+
+(async () => { 
+    try {
+        await redisClient.connect(); 
+        console.log('✅ Connesso a Upstash Redis con successo!');
+    } catch (e) {
+        console.error('❌ Errore connessione Redis:', e);
+    }
+})();
 // -------------------------
 
 app.use(express.static(path.join(__dirname, 'public')));
