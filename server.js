@@ -672,6 +672,7 @@ async function startGame(roomCode) {
     // RESET VARIABILI PER LA NUOVA MANCHE
     // ============================================================
     state.gamePhase = 'playing';
+    state.turnPhase = 'draw'; 
     state.hasDrawn = false;
     state.discardRequests =[];
     
@@ -731,10 +732,15 @@ async function endTurn(roomCode, forceImmediateUpdate = false) {
     }
 
     const currentPlayerIndex = playerIds.indexOf(state.currentPlayerId);
-    state.pendingDiscardRequest = null; // 
-    state.discardRequests =[];
-    state.currentPlayerId = playerIds[(currentPlayerIndex + 1) % playerIds.length] || playerIds[0];
+    
+    // Reset variabili turno
+    state.pendingDiscardRequest = null;
+    state.discardRequests = [];
     state.hasDrawn = false;
+    state.turnPhase = 'draw'; // <--- AGGIUNGI QUESTA RIGA FONDAMENTALE!
+
+    // Passa turno
+    state.currentPlayerId = playerIds[(currentPlayerIndex + 1) % playerIds.length] || playerIds[0];
     
     await redisClient.set(`room:${roomCode}`, JSON.stringify(room));
     if (forceImmediateUpdate) {
