@@ -1,4 +1,5 @@
 const gameLogic = require('./public/logic.js');
+const { saveRoom, delPlayerRoomIndex, delSocketRoomIndex } = require('./redisClient.js');
 
 let _io;
 let _redisClient;
@@ -127,7 +128,7 @@ async function startGame(roomCode) {
     state.discardPile = [state.deck.pop()];
     state.currentPlayerId = playerIds[Math.floor(Math.random() * playerIds.length)];
 
-    await _redisClient.set(`room:${roomCode}`, JSON.stringify(room));
+    await saveRoom(roomCode, room);
     updateRoomState(roomCode, room);
 }
 
@@ -152,7 +153,7 @@ async function endTurn(roomCode) {
     state.turnPhase = 'draw';
     state.currentPlayerId = playerIds[(currentIndex + 1) % playerIds.length] || playerIds[0];
 
-    await _redisClient.set(`room:${roomCode}`, JSON.stringify(room));
+    await saveRoom(roomCode, room);
     // Piccolo delay per dare tempo al client di animare la carta scartata
     setTimeout(() => updateRoomState(roomCode, null), 200);
 }
@@ -186,11 +187,11 @@ async function endManche(roomCode) {
     state.currentManche++;
 
     if (state.currentManche > state.mancheOrder.length) {
-        await _redisClient.set(`room:${roomCode}`, JSON.stringify(room));
+        await saveRoom(roomCode, room);
         await endGame(roomCode);
     } else {
         state.gamePhase = 'choose_next_manche';
-        await _redisClient.set(`room:${roomCode}`, JSON.stringify(room));
+        await saveRoom(roomCode, room);
 
         const playedManches = state.mancheOrder.slice(0, state.currentManche - 1);
         const remainingManches = gameLogic.manches.filter(m => !playedManches.includes(m.requirement));
@@ -214,6 +215,13 @@ async function endGame(roomCode) {
         message: `Il vincitore è ${winner.name}!\n\nClassifica finale:\n${ranking}`
     });
 
+    // Pulisce tutti gli indici secondari prima di cancellare la stanza
+    await Promise.all(
+        Object.values(room.players).flatMap(p => [
+            delPlayerRoomIndex(p.uniquePlayerId),
+            delSocketRoomIndex(p.id)
+        ])
+    );
     await _redisClient.del(`room:${roomCode}`);
 }
 

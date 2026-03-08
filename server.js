@@ -3,6 +3,7 @@ require('dotenv').config();
 const http = require('http');
 const { Server } = require('socket.io');
 const path = require('path');
+const helmet = require('helmet');
 
 const { redisClient, connectRedis } = require('./redisClient.js');
 const gameEngine = require('./gameEngine.js');
@@ -26,6 +27,7 @@ const PORT = process.env.PORT || 3000;
 connectRedis();
 gameEngine.init(io, redisClient);
 
+app.use(helmet());
 app.use(express.static(path.join(__dirname, 'public')));
 
 // Registra tutti gli handler Socket.IO

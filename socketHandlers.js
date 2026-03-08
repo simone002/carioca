@@ -1,8 +1,50 @@
 const gameLogic = require('./public/logic.js');
-const { findRoomAndPlayerByUniqueId, findRoomBySocketId } = require('./redisClient.js');
+const {
+    findRoomAndPlayerByUniqueId, findRoomBySocketId,
+    saveRoom, setPlayerRoomIndex, setSocketRoomIndex, delSocketRoomIndex
+} = require('./redisClient.js');
 const { sortCards, updateRoomState, startGame, endTurn, endManche, endGame } = require('./gameEngine.js');
 
 const MAX_PLAYERS = 4;
+
+/** Secondi di attesa prima di saltare il turno di un giocatore disconnesso */
+const SKIP_TURN_DELAY_MS = 30_000;
+
+// Timers per saltare il turno ai giocatori disconnessi: uniquePlayerId → timeout handle
+const disconnectTimers = new Map();
+
+// ------------------------------------------------------------------
+// RATE LIMITING  (max 20 eventi/secondo per socket)
+// ------------------------------------------------------------------
+const rateLimiter = new Map();
+const RATE_LIMIT = 20;
+const RATE_WINDOW_MS = 1000;
+
+function checkRateLimit(socketId) {
+    const now = Date.now();
+    let entry = rateLimiter.get(socketId);
+    if (!entry || now > entry.resetAt) {
+        entry = { count: 0, resetAt: now + RATE_WINDOW_MS };
+    }
+    entry.count++;
+    rateLimiter.set(socketId, entry);
+    return entry.count <= RATE_LIMIT;
+}
+
+// ------------------------------------------------------------------
+// VALIDAZIONE INPUT
+// ------------------------------------------------------------------
+
+/**
+ * Sanifica il nome del giocatore: stringa, 1-20 caratteri, non solo spazi.
+ * Restituisce la stringa ripulita oppure null se non valida.
+ */
+function sanitizePlayerName(name) {
+    if (typeof name !== 'string') return null;
+    const trimmed = name.trim().replace(/\s+/g, ' ');
+    if (trimmed.length < 1 || trimmed.length > 20) return null;
+    return trimmed;
+}
 
 /**
  * Registra tutti gli event handler Socket.IO per un socket connesso.
@@ -11,11 +53,22 @@ function registerHandlers(io, socket, redisClient) {
 
     console.log(`Un utente si è connesso: ${socket.id}`);
 
+    // Rate limiting middleware: blocca socket che inviano troppi eventi
+    socket.use(([event], next) => {
+        if (!checkRateLimit(socket.id)) {
+            return socket.emit('error', 'Troppe richieste. Rallenta!');
+        }
+        next();
+    });
+
     // ------------------------------------------------------------------
     // GESTIONE STANZE
     // ------------------------------------------------------------------
 
     socket.on('createRoom', async ({ playerName, uniquePlayerId }) => {
+        const name = sanitizePlayerName(playerName);
+        if (!name) return socket.emit('error', 'Nome giocatore non valido (1-20 caratteri).');
+
         let roomCode = generateRoomCode();
         while (await redisClient.exists(`room:${roomCode}`)) {
             roomCode = generateRoomCode();
@@ -28,17 +81,22 @@ function registerHandlers(io, socket, redisClient) {
         const room = {
             hostId: socket.id,
             players: {
-                [socket.id]: createPlayerObject(socket.id, playerName, newUniqueId)
+                [socket.id]: createPlayerObject(socket.id, name, newUniqueId)
             },
             gameState: createInitialGameState(roomCode)
         };
 
-        await redisClient.set(`room:${roomCode}`, JSON.stringify(room));
+        await saveRoom(roomCode, room);
+        await setPlayerRoomIndex(newUniqueId, roomCode);
+        await setSocketRoomIndex(socket.id, roomCode);
         socket.emit('roomCreated', { roomCode, playerId: socket.id, uniquePlayerId: newUniqueId });
         updateRoomState(roomCode, room);
     });
 
     socket.on('joinRoom', async ({ roomCode, playerName, uniquePlayerId }) => {
+        const name = sanitizePlayerName(playerName);
+        if (!name) return socket.emit('error', 'Nome giocatore non valido (1-20 caratteri).');
+
         roomCode = roomCode.toUpperCase();
         const roomDataString = await redisClient.get(`room:${roomCode}`);
         if (!roomDataString) return socket.emit('error', 'Stanza non trovata.');
@@ -51,15 +109,24 @@ function registerHandlers(io, socket, redisClient) {
         socket.roomCode = roomCode;
 
         const newUniqueId = uniquePlayerId || generateUniqueId();
-        room.players[socket.id] = createPlayerObject(socket.id, playerName, newUniqueId);
+        room.players[socket.id] = createPlayerObject(socket.id, name, newUniqueId);
 
-        await redisClient.set(`room:${roomCode}`, JSON.stringify(room));
+        await saveRoom(roomCode, room);
+        await setPlayerRoomIndex(newUniqueId, roomCode);
+        await setSocketRoomIndex(socket.id, roomCode);
         socket.emit('joinedRoom', { uniquePlayerId: newUniqueId });
         updateRoomState(roomCode, room);
     });
 
     socket.on('reconnectPlayer', async ({ uniquePlayerId }) => {
         if (!uniquePlayerId) return;
+
+        // Annulla il timer di skip turno se il giocatore si riconnette in tempo
+        if (disconnectTimers.has(uniquePlayerId)) {
+            clearTimeout(disconnectTimers.get(uniquePlayerId));
+            disconnectTimers.delete(uniquePlayerId);
+        }
+
         const { roomCode, room, oldSocketId } = await findRoomAndPlayerByUniqueId(uniquePlayerId);
         if (!roomCode || !room || !oldSocketId || !room.players[oldSocketId]) return;
 
@@ -73,12 +140,17 @@ function registerHandlers(io, socket, redisClient) {
 
             if (room.gameState.currentPlayerId === oldSocketId) room.gameState.currentPlayerId = newSocketId;
             if (room.hostId === oldSocketId) room.hostId = newSocketId;
+
+            // Aggiorna gli indici: rimuove il vecchio socketId, aggiunge il nuovo
+            await delSocketRoomIndex(oldSocketId);
         }
 
         socket.join(roomCode);
         socket.roomCode = roomCode;
 
-        await redisClient.set(`room:${roomCode}`, JSON.stringify(room));
+        await saveRoom(roomCode, room);
+        await setPlayerRoomIndex(uniquePlayerId, roomCode);
+        await setSocketRoomIndex(newSocketId, roomCode);
         updateRoomState(roomCode, room);
         console.log(`Giocatore ${playerData.name} riconnesso alla stanza ${roomCode}.`);
     });
@@ -98,7 +170,7 @@ function registerHandlers(io, socket, redisClient) {
             ? customMancheOrder
             : defaultOrder;
 
-        await redisClient.set(`room:${roomCode}`, JSON.stringify(room));
+        await saveRoom(roomCode, room);
         await startGame(roomCode);
     });
 
@@ -130,7 +202,7 @@ function registerHandlers(io, socket, redisClient) {
             message: `${room.players[winnerId].name} ha scelto: ${chosen.name}`
         });
 
-        await redisClient.set(`room:${roomCode}`, JSON.stringify(room));
+        await saveRoom(roomCode, room);
         setTimeout(() => startGame(roomCode), 4000);
     });
 
@@ -147,7 +219,7 @@ function registerHandlers(io, socket, redisClient) {
 
         if (room.players[socket.id]) {
             room.players[socket.id].groups = newGroups;
-            await redisClient.set(`room:${roomCode}`, JSON.stringify(room));
+            await saveRoom(roomCode, room);
         }
     });
 
@@ -169,7 +241,7 @@ function registerHandlers(io, socket, redisClient) {
         if (state.discardRequests.includes(socket.id)) return;
 
         state.discardRequests.push(socket.id);
-        await redisClient.set(`room:${roomCode}`, JSON.stringify(room));
+        await saveRoom(roomCode, room);
 
         socket.emit('message', { title: "Prenotazione", message: "Hai richiesto lo scarto. Se hai la priorità, sarà tuo." });
         io.to(roomCode).emit('discardBookedUpdate', { count: state.discardRequests.length });
@@ -227,7 +299,7 @@ function registerHandlers(io, socket, redisClient) {
         state.hasDrawn = true;
         state.turnPhase = 'play';
 
-        await redisClient.set(`room:${roomCode}`, JSON.stringify(room));
+        await saveRoom(roomCode, room);
         updateRoomState(roomCode, room);
     });
 
@@ -256,7 +328,7 @@ function registerHandlers(io, socket, redisClient) {
         state.hasDrawn = true;
         state.turnPhase = 'play';
 
-        await redisClient.set(`room:${roomCode}`, JSON.stringify(room));
+        await saveRoom(roomCode, room);
         updateRoomState(roomCode, room);
     });
 
@@ -294,7 +366,7 @@ function registerHandlers(io, socket, redisClient) {
         });
         state.discardPile.push(discarded);
 
-        await redisClient.set(`room:${roomCode}`, JSON.stringify(room));
+        await saveRoom(roomCode, room);
 
         if (player.hand.length === 0) {
             await endManche(roomCode);
@@ -350,7 +422,7 @@ function registerHandlers(io, socket, redisClient) {
         state.tableCombinations.push({ player: player.name, type: manche.name, cards: originalCards });
         player.dressed = true;
 
-        await redisClient.set(`room:${roomCode}`, JSON.stringify(room));
+        await saveRoom(roomCode, room);
         updateRoomState(roomCode, room);
         socket.emit('message', { title: "Ben fatto!", message: `Hai calato: ${manche.name}` });
     });
@@ -417,7 +489,7 @@ function registerHandlers(io, socket, redisClient) {
         }
 
         if (moveMade) {
-            await redisClient.set(`room:${roomCode}`, JSON.stringify(room));
+            await saveRoom(roomCode, room);
             updateRoomState(roomCode, room);
         } else {
             socket.emit('message', { title: "Mossa non valida", message: "Le carte non formano un gioco valido." });
@@ -468,7 +540,7 @@ function registerHandlers(io, socket, redisClient) {
 
         if (combo.type === 'Scala') sortCards(combo.cards);
 
-        await redisClient.set(`room:${roomCode}`, JSON.stringify(room));
+        await saveRoom(roomCode, room);
         updateRoomState(roomCode, room);
         socket.emit('message', { title: "Scambio Riuscito!", message: "Hai preso il Jolly!" });
     });
@@ -478,10 +550,42 @@ function registerHandlers(io, socket, redisClient) {
     // ------------------------------------------------------------------
 
     socket.on('disconnect', async () => {
-        const { room } = await findRoomBySocketId(socket.id);
-        if (room) {
-            const name = room.players[socket.id]?.name || socket.id;
-            console.log(`Giocatore ${name} disconnesso da ${socket.roomCode}`);
+        // Pulisce l'entry del rate limiter
+        rateLimiter.delete(socket.id);
+        // Rimuove l'indice socket
+        await delSocketRoomIndex(socket.id);
+
+        const { roomCode, room } = await findRoomBySocketId(socket.id);
+        if (!room) return;
+
+        const player = room.players[socket.id];
+        const name = player?.name || socket.id;
+        console.log(`Giocatore ${name} disconnesso da ${roomCode}`);
+
+        // Se era il turno del giocatore disconnesso, avvia un timer per saltarlo
+        if (
+            room.gameState.gamePhase === 'playing' &&
+            room.gameState.currentPlayerId === socket.id &&
+            player?.uniquePlayerId
+        ) {
+            const uniqueId = player.uniquePlayerId;
+            const oldSocketId = socket.id;
+
+            const timer = setTimeout(async () => {
+                disconnectTimers.delete(uniqueId);
+                const roomData = await redisClient.get(`room:${roomCode}`);
+                if (!roomData) return;
+                const currentRoom = JSON.parse(roomData);
+                // Salta solo se il giocatore è ancora disconnesso (stesso socketId = non riconnesso)
+                if (currentRoom.gameState.currentPlayerId !== oldSocketId) return;
+                io.to(roomCode).emit('message', {
+                    title: "Turno Saltato",
+                    message: `${name} è disconnesso. Turno passato automaticamente.`
+                });
+                await endTurn(roomCode);
+            }, SKIP_TURN_DELAY_MS);
+
+            disconnectTimers.set(uniqueId, timer);
         }
     });
 }
