@@ -7,9 +7,8 @@ let isSwappingJoker = false;
 let previousPlayerId = null;
 
 let myUniquePlayerId = localStorage.getItem('cariocaUniquePlayerId');
-const socket = io("https://carioca-02wq.onrender.com", {
-    transports: ["websocket", "polling"] // Permetti entrambi i metodi
-});
+// Connessione relativa: funziona sia in locale che in produzione
+const socket = io({ transports: ["websocket", "polling"] });
 
 let gameState = {};
 let myPlayerId = null;
@@ -32,7 +31,6 @@ socket.on('connect', () => {
 socket.on('disconnect', () => { updateConnectionStatus('disconnected'); });
 
 
-// Sostituisci il tuo 'socket.on('roomCreated', ...)' con questo
 socket.on('roomCreated', ({ roomCode, playerId, uniquePlayerId }) => {
     myPlayerId = playerId;
     if (uniquePlayerId) {
@@ -43,22 +41,22 @@ socket.on('roomCreated', ({ roomCode, playerId, uniquePlayerId }) => {
 });
 
 
+socket.on('joinedRoom', ({ uniquePlayerId }) => {
+    if (uniquePlayerId) {
+        myUniquePlayerId = uniquePlayerId;
+        localStorage.setItem('cariocaUniquePlayerId', myUniquePlayerId);
+    }
+});
+
+
 socket.on('gameStateUpdate', (serverState) => {
     if (previousPlayerId !== myPlayerId && serverState.currentPlayerId === myPlayerId && serverState.gamePhase === 'playing') {
         showMessage("È il tuo turno!", "Tocca a te giocare.");
     }
-    previousPlayerId = serverState.currentPlayerId; 
-
+    previousPlayerId = serverState.currentPlayerId;
     gameState = serverState;
 
-    // Salva l'ID unico se non lo abbiamo ancora
-    const myPlayerData = gameState.players[myPlayerId];
-    if (myPlayerData && myPlayerData.uniquePlayerId && !myUniquePlayerId) {
-        myUniquePlayerId = myPlayerData.uniquePlayerId;
-        localStorage.setItem('cariocaUniquePlayerId', myUniquePlayerId);
-    }
-
-    console.log("Nuovo stato ricevuto:", gameState);
+    console.log("Nuovo stato ricevuto:", gameState.gamePhase, "turno:", gameState.currentPlayerId);
     if (gameState.currentPlayerId !== myPlayerId) selectedCardIndexes.clear();
     if (gameState.gamePhase === 'waiting') {
         showWaitingScreen(gameState.roomCode);
@@ -120,7 +118,6 @@ function createRoom() {
     socket.emit('createRoom', { playerName, uniquePlayerId: myUniquePlayerId });
 }
 
-// Modifica la funzione 'joinRoom'
 function joinRoom() {
     const playerName = document.getElementById('player-name').value.trim();
     const roomCode = document.getElementById('room-code').value.trim();
@@ -128,17 +125,12 @@ function joinRoom() {
     socket.emit('joinRoom', { roomCode, playerName, uniquePlayerId: myUniquePlayerId });
 }
 
-// Modifica la funzione 'requestStartGame'
 function requestStartGame() {
     const mancheList = document.getElementById('manche-order-list');
     const customMancheOrder = [];
-    
-    // Leggi il nuovo ordine dalla lista nel DOM
     mancheList.querySelectorAll('li').forEach(li => {
         customMancheOrder.push(li.dataset.requirement);
     });
-
-    // Invia l'ordine personalizzato al server
     socket.emit('startGameRequest', customMancheOrder);
 }
 
@@ -158,7 +150,16 @@ function discardCard() {
 // ==========================================================
 // # JOKER LOGIC
 // ==========================================================
-function populateJokerValues() { const select = document.getElementById('joker-value-select'); const values = ['A', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K']; values.forEach(v => { const option = document.createElement('option'); option.value = v; option.textContent = v; select.appendChild(option); });}
+function populateJokerValues() {
+    const select = document.getElementById('joker-value-select');
+    const values = ['A', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K'];
+    values.forEach(v => {
+        const option = document.createElement('option');
+        option.value = v;
+        option.textContent = v;
+        select.appendChild(option);
+    });
+}
 function handleActionWithJokers(selectedIndexes, actionType) {
     const selectedCards = selectedIndexes.map(i => gameState.playerHand[i]);
     const jokersInSelection = selectedIndexes.filter(i => gameState.playerHand[i] && gameState.playerHand[i].isJoker);
@@ -439,7 +440,11 @@ function sendGroupsToServer() {
 // ==========================================================
 // # FUNZIONI DI GESTIONE SCHERMATE E MODAL
 // ==========================================================
-function updateConnectionStatus(status) { const statusEl = document.getElementById('connection-status'); statusEl.className = `connection-status ${status}`; statusEl.textContent = status === 'connected' ? 'Online' : 'Connecting...'; }
+function updateConnectionStatus(status) {
+    const statusEl = document.getElementById('connection-status');
+    statusEl.className = `connection-status ${status}`;
+    statusEl.textContent = status === 'connected' ? 'Online' : 'Connecting...';
+}
 function showJoinRoom() { document.getElementById('join-room').style.display = 'block'; }
 function showWaitingScreen(roomCode) {
     document.getElementById('setup-screen').style.display = 'none';

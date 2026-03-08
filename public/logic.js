@@ -229,8 +229,8 @@ function canPartitionIntoMelds(cards) {
                 const jokers = potentialMeld.filter(c => c.isJoker).length;
                 const nonJokers = potentialMeld.filter(c => !c.isJoker);
                 
-                // Se la combinazione trovata è un gioco valido...
-                if (isValidSet(nonJokers, jokers) || isValidRun(nonJokers, jokers)) {
+                // Pass the full meld (including jokers) so isValidRun can use them
+                if (isValidSet(nonJokers, jokers) || isValidRun(potentialMeld)) {
                     
                     // ...crea un nuovo set di carte rimanenti...
                     const remainingCards = cards.filter(card => !potentialMeld.includes(card));
@@ -280,16 +280,9 @@ function validateChiusura(cards) {
     return false; // Nessuna combinazione di chiusura trovata
 }
 
-function canPartitionIntoValidGames(cards) {
-    if (cards.length === 0) return true;
-    if (cards.length < 3) return false;
-
-    // A backtracking or dynamic programming solution is needed here for efficiency.
-    // This is a placeholder for that complex logic. For now, we assume it works.
-    // A simple check could be to see if they can be grouped greedily, which is not perfect.
-    return true; // Placeholder for a very complex algorithm
-}
-
+// ===================================================
+// Esporta le funzioni per poterle usare nel server
+// ===================================================
 function getCardNumericValue(value, aceIsHigh = false) {
     if (value === 'A') return aceIsHigh ? 14 : 1;
     if (value === 'J') return 11;
@@ -337,7 +330,6 @@ function checkGaps(sortedValues, jokerCount) {
 }
 
 
-// Esporta le funzioni per poterle usare nel server
 if (typeof module !== 'undefined' && module.exports) {
     module.exports = {
         manches,
@@ -354,9 +346,7 @@ if (typeof module !== 'undefined' && module.exports) {
         validateChiusura,
         getCardNumericValue,
         getCardPoints,
-        isValidSet, 
-        isValidRun, 
+        isValidSet,
+        isValidRun,
     };
-
-    // In fondo al file public/logic.js
 }
